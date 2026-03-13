@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# build output
+dist/
+**/dist/
+build/
+**/build/
+
+# tooling caches
+.vite/
+**/.vite/
+coverage/
+**/coverage/
+.cache/
+**/.cache/
+
+# environment files (keep examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
