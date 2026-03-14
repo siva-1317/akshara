@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import aksharaLogo from "../assets/akshara.png";
@@ -128,23 +128,38 @@ export default function AppNavbar({ theme, onToggleTheme }) {
     [notifications]
   );
 
+  const hasNewTasks = useMemo(
+    () => notifications.some((item) => !item.is_read && String(item.type || "").toLowerCase() === "task"),
+    [notifications]
+  );
+
+  const loadNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    try {
+      const { data } = await getNotifications();
+      setNotifications(data.notifications || []);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [user]);
+
   useEffect(() => {
-    const loadNotifications = async () => {
-      if (!user) {
-        setNotifications([]);
-        return;
-      }
-
-      try {
-        const { data } = await getNotifications();
-        setNotifications(data.notifications || []);
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
     loadNotifications();
-  }, [user?.id, user?.role, user?.isBlocked]);
+
+    const intervalId = window.setInterval(loadNotifications, 20000);
+    window.addEventListener("focus", loadNotifications);
+    window.addEventListener("akshara-notifications", loadNotifications);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadNotifications);
+      window.removeEventListener("akshara-notifications", loadNotifications);
+    };
+  }, [loadNotifications]);
 
   useEffect(() => {
     if (!showNotifications) {
@@ -425,8 +440,9 @@ export default function AppNavbar({ theme, onToggleTheme }) {
                     <Link className="nav-link" to="/create-test">
                       Create Test
                     </Link>
-                    <Link className="nav-link" to="/tasks">
-                      Tasks
+                    <Link className="nav-link nav-link-dot" to="/tasks">
+                      <span>Tasks</span>
+                      {hasNewTasks ? <span className="nav-dot" aria-hidden="true" /> : null}
                     </Link>
                     <Link className="nav-link" to="/history">
                       History

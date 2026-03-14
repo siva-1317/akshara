@@ -220,26 +220,32 @@ export const startTask = async (req, res, next) => {
       return res.status(400).json({ message: "No questions configured for this task yet." });
     }
 
-    const { data: createdTest, error: testError } = await supabase
-      .from("tests")
-      .insert({
-        user_id: userId,
-        topic: task.topic,
-        sub_topics: task.sub_topics || [],
-        difficulty: task.difficulty,
-        exam_type: task.exam_type || null,
-        question_count: task.question_count,
-        total_time: task.total_time || null,
-        published_test_id: task.id,
-        date: new Date().toISOString()
-      })
-      .select("*")
-      .single();
+    const testPayload = {
+      user_id: userId,
+      topic: task.topic,
+      sub_topics: task.sub_topics || [],
+      difficulty: task.difficulty,
+      exam_type: task.exam_type || null,
+      question_count: task.question_count,
+      total_time: task.total_time || null,
+      published_test_id: task.id,
+      date: new Date().toISOString()
+    };
+
+    let { data: createdTest, error: testError } = await supabase.from("tests").insert(testPayload).select("*").single();
 
     if (isMissingColumnError(testError, "published_test_id")) {
-      return res.status(503).json({
-        message: "Tasks are not configured yet. Ask admin to run the latest schema."
-      });
+      const { published_test_id: _ignored, ...payloadWithoutPublishedTestId } = testPayload;
+      const retry = await supabase.from("tests").insert(payloadWithoutPublishedTestId).select("*").single();
+      createdTest = retry.data;
+      testError = retry.error;
+    }
+
+    if (isMissingColumnError(testError, "sub_topics")) {
+      const { sub_topics: _ignored, ...payloadWithoutSubtopics } = testPayload;
+      const retry = await supabase.from("tests").insert(payloadWithoutSubtopics).select("*").single();
+      createdTest = retry.data;
+      testError = retry.error;
     }
 
     if (testError) {
