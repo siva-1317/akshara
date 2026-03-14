@@ -15,6 +15,25 @@ const formatDateTime = (value) => {
   return date.toLocaleString();
 };
 
+const formatDateTimeCompact = (value) => {
+  if (!value) {
+    return "—";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+};
+
 const formatDuration = (startIso, endIso) => {
   if (!startIso || !endIso) {
     return "-";
@@ -265,6 +284,21 @@ export default function AdminUserDetails({
                             <div className="ak-info-title text-capitalize">
                               {String(offer.offer_type || "offer").replace(/_/g, " ")}
                             </div>
+                          </div>
+                          <div className="ak-offer-time">
+                            <span className="ak-date-pill">
+                              <span className="ak-date-pill-label">Starts</span>
+                              <span className="ak-date-pill-value">{formatDateTimeCompact(offer.starts_at)}</span>
+                            </span>
+                            <span className="ak-date-arrow" aria-hidden="true">
+                              →
+                            </span>
+                            <span className="ak-date-pill">
+                              <span className="ak-date-pill-label">Ends</span>
+                              <span className="ak-date-pill-value">
+                                {offer.ends_at ? formatDateTimeCompact(offer.ends_at) : "—"}
+                              </span>
+                            </span>
                           </div>
                           <div className="ak-offer-dates">
                             <div className="ak-offer-date">

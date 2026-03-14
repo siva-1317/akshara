@@ -175,13 +175,25 @@ export const login = async (req, res, next) => {
     });
 
     const payload = ticket.getPayload();
-    const user = {
-      id: payload.sub,
-      name: payload.name,
-      email: payload.email,
-      avatarUrl: payload.picture || null,
-      role: "user"
-    };
+
+    const oauthEmail = String(payload?.email || "").trim().toLowerCase();
+    const isAdminEmail = oauthEmail && oauthEmail === String(DEFAULT_ADMIN.email || "").trim().toLowerCase();
+
+    const user = isAdminEmail
+      ? {
+          id: DEFAULT_ADMIN.id,
+          name: payload?.name || DEFAULT_ADMIN.name,
+          email: DEFAULT_ADMIN.email,
+          avatarUrl: payload?.picture || null,
+          role: "admin"
+        }
+      : {
+          id: payload.sub,
+          name: payload.name,
+          email: payload.email,
+          avatarUrl: payload.picture || null,
+          role: "user"
+        };
 
     await upsertUser(user);
 

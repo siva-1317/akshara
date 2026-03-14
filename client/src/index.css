@@ -38,6 +38,89 @@ a {
   overflow: hidden;
 }
 
+.login-shell {
+  position: relative;
+  margin: 0;
+  min-height: 100vh;   /* full screen height */
+  width: 100%;
+
+  display: flex;       /* use flex for centering */
+  justify-content: center; /* horizontal */
+  align-items: center;     /* vertical */
+
+  padding: 1rem;
+}
+
+.login-back {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  color: rgba(47, 47, 47, 0.72);
+  font-weight: 600;
+}
+
+.login-back:hover {
+  color: var(--ak-primary-dark);
+}
+
+.login-card {
+  width: min(520px, 92vw);
+  border-radius: 1.6rem;
+  box-shadow: 0 24px 70px rgba(255, 106, 0, 0.12);
+  padding: 1.25rem;
+}
+
+.login-provider {
+  border-radius: 1.35rem;
+  border: 1px solid rgba(255, 179, 125, 0.28);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 1rem;
+}
+
+.login-provider-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.login-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 179, 125, 0.26);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.login-google-wrap {
+  display: grid;
+  place-items: center;
+}
+
+.login-google-wrap.is-loading {
+  pointer-events: none;
+  opacity: 0.8;
+  filter: saturate(0.9);
+}
+
+.ak-spinner {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 106, 0, 0.2);
+  border-top-color: rgba(255, 106, 0, 0.9);
+  animation: ak-spin 0.8s linear infinite;
+}
+
+@keyframes ak-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hero-panel,
 .ak-card,
 .question-panel {
@@ -619,6 +702,47 @@ a {
   position: absolute;
   top: 0.65rem;
   right: 0.65rem;
+}
+
+.ak-offer-item .ak-offer-dates {
+  display: none;
+}
+
+.ak-offer-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.ak-date-pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 179, 125, 0.26);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.ak-date-pill-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(47, 47, 47, 0.6);
+}
+
+.ak-date-pill-value {
+  font-weight: 800;
+  color: var(--ak-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ak-date-arrow {
+  color: rgba(47, 47, 47, 0.5);
+  font-weight: 800;
 }
 
 .ak-offer-item .ak-offer-dates {
@@ -1301,6 +1425,16 @@ body[data-theme="dark"] {
   --ak-card-border: rgba(255, 255, 255, 0.08);
   --ak-chart-slate: rgba(255, 255, 255, 0.45);
   --ak-chart-track: rgba(255, 255, 255, 0.14);
+}
+
+body[data-theme="dark"] .login-provider {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+body[data-theme="dark"] .login-loading {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 body[data-theme="dark"] .navbar-ak {
