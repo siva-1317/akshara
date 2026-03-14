@@ -6,10 +6,44 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const DEFAULT_ADMIN = {
   id: "admin-1",
   name: "AKSHARA Admin",
-  email: "admin@gmail.com",
+  email: "siva636938@gmail.com",
   password: "admin123",
   role: "admin"
 };
+
+const isMissingTableError = (error, tableName) => {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  const details = String(error.details || "").toLowerCase();
+  const target = String(tableName || "").toLowerCase();
+
+  return (
+    error.code === "PGRST205" ||
+    message.includes(`table 'public.${target}'`) ||
+    details.includes(`table 'public.${target}'`)
+  );
+};
+
+const isMissingColumnError = (error, columnName) => {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  const details = String(error.details || "").toLowerCase();
+  const target = String(columnName || "").toLowerCase();
+
+  return (
+    message.includes("column") &&
+    (message.includes("does not exist") || details.includes("does not exist")) &&
+    (message.includes(target) || details.includes(target))
+  );
+};
+
+const approvalStatusFor = (userRole) => (String(userRole || "").toLowerCase() === "admin" ? "approved" : "pending");
 
 const mapUserToResponse = (storedUser, fallback = {}) => ({
   id: storedUser.id,
@@ -20,6 +54,7 @@ const mapUserToResponse = (storedUser, fallback = {}) => ({
   coins: Number.isFinite(storedUser.coins) ? storedUser.coins : 50,
   avatarUrl: fallback.avatarUrl || null,
   role: storedUser.role || fallback.role || "user",
+  approvalStatus: storedUser.approval_status || "approved",
   isBlocked: Boolean(storedUser.is_blocked),
   blockReason: storedUser.block_reason || null
 });
@@ -36,16 +71,37 @@ const upsertUser = async (user) => {
   }
 
   if (!existingUser) {
-    const { error } = await supabase.from("users").insert({
+    const insertPayload = {
       id: user.id,
       name: user.name,
       email: user.email,
       coins: 50,
-      role: user.role || "user"
-    });
+      role: user.role || "user",
+      approval_status: approvalStatusFor(user.role || "user")
+    };
+
+    let { error } = await supabase.from("users").insert(insertPayload);
+
+    if (isMissingColumnError(error, "approval_status")) {
+      const { approval_status: _ignored, ...fallbackPayload } = insertPayload;
+      const retry = await supabase.from("users").insert(fallbackPayload);
+      error = retry.error;
+    }
 
     if (error) {
       throw error;
+    }
+
+    const adminNotification = {
+      user_id: DEFAULT_ADMIN.id,
+      type: "approval",
+      title: "New user waiting for approval",
+      message: `${user.name || "New user"} (${user.email || "no email"}) requested access.`
+    };
+
+    const { error: notifyError } = await supabase.from("notifications").insert(adminNotification);
+    if (!isMissingTableError(notifyError, "notifications") && notifyError) {
+      throw notifyError;
     }
 
     return;
@@ -80,7 +136,7 @@ export const login = async (req, res, next) => {
 
     if (email && password) {
       if (
-        email.toLowerCase() === DEFAULT_ADMIN.email &&
+        email.trim().toLowerCase() === DEFAULT_ADMIN.email.toLowerCase() &&
         password === DEFAULT_ADMIN.password
       ) {
         await upsertUser(DEFAULT_ADMIN);

@@ -51,6 +51,38 @@ const isMissingColumnError = (error, columnName) => {
   );
 };
 
+const requireApprovedUser = async (req, res) => {
+  const userId = req.headers["x-user-id"];
+  const role = String(req.headers["x-user-role"] || "").toLowerCase();
+
+  if (!userId || role === "admin") {
+    return true;
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("approval_status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (isMissingTableError(error, "users") || isMissingColumnError(error, "approval_status")) {
+    return true;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  const status = String(data?.approval_status || "approved").toLowerCase();
+  if (status === "approved") {
+    return true;
+  }
+
+  const message = status === "rejected" ? "Your access request was rejected." : "Waiting for admin approval.";
+  res.status(403).json({ message });
+  return false;
+};
+
 const getActiveOfferForUserId = async (userId) => {
   if (!userId) {
     return null;
@@ -235,6 +267,10 @@ const buildContributionGraph = (tests, days = 126) => {
 
 export const createTest = async (req, res, next) => {
   try {
+    if (!(await requireApprovedUser(req, res))) {
+      return;
+    }
+
     const {
       userId,
       topic,
@@ -362,6 +398,10 @@ export const createTest = async (req, res, next) => {
 
 export const getHistory = async (req, res, next) => {
   try {
+    if (!(await requireApprovedUser(req, res))) {
+      return;
+    }
+
     const { userId } = req.query;
     let query = supabase.from("tests").select("*").order("date", { ascending: false });
     if (userId) {
@@ -381,6 +421,10 @@ export const getHistory = async (req, res, next) => {
 
 export const getDashboard = async (req, res, next) => {
   try {
+    if (!(await requireApprovedUser(req, res))) {
+      return;
+    }
+
     const { userId } = req.query;
     const serverTime = new Date().toISOString();
     const activeOffer = await getActiveOfferForUserId(userId);
@@ -876,6 +920,80 @@ export const getAdminUsers = async (_req, res, next) => {
   }
 };
 
+export const approveAdminUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ message: "User id is required." });
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .update({ approval_status: "approved" })
+      .eq("id", userId)
+      .select("*")
+      .single();
+
+    if (isMissingColumnError(error, "approval_status")) {
+      return res.status(503).json({
+        message: "User approval is not configured yet. Ask admin to run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    await createNotification({
+      userId,
+      type: "approval",
+      title: "Account approved",
+      message: "Your AKSHARA account has been approved. You can now access the dashboard."
+    });
+
+    return res.json({ message: "User approved.", user: data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const rejectAdminUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ message: "User id is required." });
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .update({ approval_status: "rejected" })
+      .eq("id", userId)
+      .select("*")
+      .single();
+
+    if (isMissingColumnError(error, "approval_status")) {
+      return res.status(503).json({
+        message: "User approval is not configured yet. Ask admin to run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    await createNotification({
+      userId,
+      type: "approval",
+      title: "Account rejected",
+      message: "Your AKSHARA access request was rejected. Contact admin for details."
+    });
+
+    return res.json({ message: "User rejected.", user: data });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 export const deleteAdminUser = async (req, res, next) => {
   try {
@@ -898,6 +1016,27 @@ export const deleteAdminUser = async (req, res, next) => {
     if (user?.role === "admin") {
       return res.status(400).json({ message: "Cannot delete admin users." });
     }
+
+    const safeDelete = async (table, column) => {
+      const { error } = await supabase.from(table).delete().eq(column, userId);
+      if (isMissingTableError(error, table)) {
+        return;
+      }
+      if (error) {
+        throw error;
+      }
+    };
+
+    await safeDelete("answers", "user_id");
+    await safeDelete("tests", "user_id");
+    await safeDelete("user_onboarding", "user_id");
+    await safeDelete("unblock_requests", "user_id");
+    await safeDelete("coin_requests", "user_id");
+    await safeDelete("notifications", "user_id");
+    await safeDelete("offers", "user_id");
+    await safeDelete("feedback", "user_id");
+    await safeDelete("certificates", "user_id");
+    await safeDelete("task_completions", "user_id");
 
     const { data, error } = await supabase.from("users").delete().eq("id", userId).select("id");
 
@@ -2145,6 +2284,89 @@ export const getAdminAnalytics = async (_req, res, next) => {
     }, {});
     const activeOfferUsers = new Set(activeOffersRows.map((row) => row.user_id).filter(Boolean)).size;
 
+    const buildMonthKeys = (monthsBack = 12) => {
+      const now = new Date();
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const keys = [];
+
+      for (let offset = monthsBack - 1; offset >= 0; offset -= 1) {
+        const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        keys.push({
+          key: `${y}-${m}`,
+          label: `${months[d.getMonth()]} ${y}`
+        });
+      }
+
+      return keys;
+    };
+
+    const fetchRecentCertificates = async ({ startIso }) => {
+      const pageSize = 1000;
+      const maxRows = 50000;
+      const rows = [];
+
+      for (let from = 0; from < maxRows; from += pageSize) {
+        const { data, error } = await supabase
+          .from("certificates")
+          .select("issued_at, user_id")
+          .gte("issued_at", startIso)
+          .order("issued_at", { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (isMissingTableError(error, "certificates")) {
+          return { rows: [], certificatesTableMissing: true };
+        }
+
+        if (error) {
+          throw error;
+        }
+
+        const batch = data || [];
+        rows.push(...batch);
+
+        if (batch.length < pageSize) {
+          break;
+        }
+      }
+
+      return { rows, certificatesTableMissing: false };
+    };
+
+    const certificateTotalQuery = supabase.from("certificates").select("id", { count: "exact", head: true });
+    const certificateTotalRes = await certificateTotalQuery;
+
+    const certificatesTableMissing = isMissingTableError(certificateTotalRes.error, "certificates");
+    if (!certificatesTableMissing && certificateTotalRes.error) {
+      throw certificateTotalRes.error;
+    }
+    const certificatesTotal = certificatesTableMissing ? null : certificateTotalRes.count ?? 0;
+
+    const months = buildMonthKeys(12);
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 11, 1);
+    startDate.setHours(0, 0, 0, 0);
+
+    const recentCertificatesResult = certificatesTableMissing
+      ? { rows: [], certificatesTableMissing: true }
+      : await fetchRecentCertificates({ startIso: startDate.toISOString() });
+
+    const recentCertificates = recentCertificatesResult.rows || [];
+    const certificateMonthCounts = recentCertificates.reduce((accumulator, row) => {
+      const d = row.issued_at ? new Date(row.issued_at) : null;
+      if (!d || Number.isNaN(d.getTime())) {
+        return accumulator;
+      }
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      accumulator[key] = (accumulator[key] || 0) + 1;
+      return accumulator;
+    }, {});
+
+    const certificateUniqueUsers = recentCertificatesResult.certificatesTableMissing
+      ? null
+      : new Set(recentCertificates.map((row) => row.user_id).filter(Boolean)).size;
+
     return res.json({
       answers: {
         total: answersTotal,
@@ -2155,6 +2377,19 @@ export const getAdminAnalytics = async (_req, res, next) => {
         activeTotal: activeOffersResult.offersTableMissing ? null : activeOffersRows.length,
         activeUsers: activeOffersResult.offersTableMissing ? null : activeOfferUsers,
         byType: activeOffersResult.offersTableMissing ? null : activeOffersByType
+      },
+      certificates: {
+        total: certificatesTableMissing ? null : certificatesTotal,
+        uniqueUsers: certificateUniqueUsers,
+        issuedSeries: recentCertificatesResult.certificatesTableMissing
+          ? null
+          : {
+              monthly: months.map(({ key, label }) => ({
+                key,
+                label,
+                count: Number(certificateMonthCounts[key] || 0)
+              }))
+            }
       },
       tests: {
         total: testsTotal,

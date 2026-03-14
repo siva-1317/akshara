@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Card from "../../components/Card";
 
 export default function AdminUsers({
@@ -12,24 +13,35 @@ export default function AdminUsers({
   onNoteChange,
   onBlockUser,
   onUnblockUser,
+  onApproveUser,
+  onRejectUser,
   grantCoins,
   onGrantCoinsChange,
   onGrantCoins,
   actionLoading
 }) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState("active");
   const [search, setSearch] = useState("");
-  const [viewOpen, setViewOpen] = useState(false);
-  const [viewUserId, setViewUserId] = useState("");
-  const [blockOpen, setBlockOpen] = useState(false);
-  const [blockReasonLocal, setBlockReasonLocal] = useState("");
+
 
   const filteredUsers = useMemo(() => {
     const list = (users || []).filter((user) => user.role !== "admin");
     if (tab === "blocked") {
       return list.filter((user) => user.is_blocked);
     }
-    return list.filter((user) => !user.is_blocked);
+
+    if (tab === "waiting") {
+      return list.filter(
+        (user) =>
+          !user.is_blocked && String(user.approval_status || "approved").toLowerCase() !== "approved"
+      );
+    }
+
+    return list.filter(
+      (user) =>
+        !user.is_blocked && String(user.approval_status || "approved").toLowerCase() === "approved"
+    );
   }, [tab, users]);
 
   const searchedUsers = useMemo(() => {
@@ -44,16 +56,6 @@ export default function AdminUsers({
     });
   }, [filteredUsers, search]);
 
-  const selectedUser = useMemo(
-    () => (users || []).find((user) => user.id === selectedUserId) || null,
-    [users, selectedUserId]
-  );
-
-  const viewUser = useMemo(
-    () => (users || []).find((user) => user.id === viewUserId) || null,
-    [users, viewUserId]
-  );
-
   useEffect(() => {
     if (!searchedUsers.length) {
       return;
@@ -67,13 +69,15 @@ export default function AdminUsers({
 
   const openView = (user) => {
     onSelectUser?.(user.id);
-    setViewUserId(user.id);
-    setViewOpen(true);
+    navigate(`/admin/users/${user.id}`);
   };
 
-  const openBlock = () => {
-    setBlockReasonLocal("");
-    setBlockOpen(true);
+  const approveUser = async (userId) => {
+    await onApproveUser?.(userId);
+  };
+
+  const rejectUser = async (userId) => {
+    await onRejectUser?.(userId);
   };
 
   return (
@@ -101,6 +105,13 @@ export default function AdminUsers({
               onClick={() => setTab("blocked")}
             >
               Blocked
+            </button>
+            <button
+              type="button"
+              className={`admin-tab-btn ${tab === "waiting" ? "active" : ""}`}
+              onClick={() => setTab("waiting")}
+            >
+              Waiting
             </button>
           </div>
           <div className="d-flex align-items-center gap-3 flex-wrap">
@@ -134,15 +145,45 @@ export default function AdminUsers({
                     <td>{user.name}</td>
                     <td>{user.email}</td>
                     <td>
-                      <span className={`status-tag ${user.is_blocked ? "blocked" : "active"}`}>
-                        {user.is_blocked ? "Blocked" : "Active"}
-                      </span>
+                      {user.is_blocked ? (
+                        <span className="status-tag blocked">Blocked</span>
+                      ) : String(user.approval_status || "approved").toLowerCase() === "approved" ? (
+                        <span className="status-tag active">Active</span>
+                      ) : String(user.approval_status || "").toLowerCase() === "rejected" ? (
+                        <span className="status-tag danger">Rejected</span>
+                      ) : (
+                        <span className="status-tag warning">Waiting</span>
+                      )}
                     </td>
                     <td>{Number.isFinite(user.coins) ? user.coins : 0}</td>
                     <td>
-                      <button className="btn btn-sm btn-outline-ak" onClick={() => openView(user)}>
-                        View
-                      </button>
+                      {tab === "waiting" ? (
+                        <div className="d-flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ak-primary"
+                            disabled={actionLoading}
+                            onClick={() => approveUser(user.id)}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-ak-danger"
+                            disabled={actionLoading}
+                            onClick={() => rejectUser(user.id)}
+                          >
+                            Reject
+                          </button>
+                          <button className="btn btn-sm btn-outline-ak" onClick={() => openView(user)}>
+                            View
+                          </button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-sm btn-outline-ak" onClick={() => openView(user)}>
+                          View
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -157,244 +198,6 @@ export default function AdminUsers({
           </table>
         </div>
       </Card>
-
-      {viewOpen && viewUser ? (
-        <>
-          <button
-            type="button"
-            className="modal-backdrop-ak"
-            aria-label="Close student details"
-            onClick={() => setViewOpen(false)}
-          />
-          <div className="modal-card-ak" role="dialog" aria-modal="true">
-            <div className="ak-card">
-              <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
-                <div>
-                  <h5 className="fw-bold mb-1">Student Details</h5>
-                  <p className="text-muted mb-0">Profile and recent performance.</p>
-                </div>
-                <div className="d-flex gap-2">
-                  {viewUser.is_blocked ? null : (
-                    <button
-                      type="button"
-                      className="btn btn-outline-danger btn-sm"
-                      onClick={openBlock}
-                    >
-                      Block
-                    </button>
-                  )}
-                  {viewUser.is_blocked ? (
-                    <button
-                      type="button"
-                      className="btn btn-ak-primary btn-sm"
-                      disabled={actionLoading}
-                      onClick={() => onUnblockUser?.(viewUser.id)}
-                    >
-                      Unblock
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="btn btn-outline-ak btn-sm"
-                    onClick={() => setViewOpen(false)}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-
-              <div className="row g-4 admin-detail-grid">
-                <div className="col-lg-5">
-                  <Card title="Profile" subtitle="Student information">
-                    <div className="row g-3">
-                      <div className="col-12">
-                        <div className="kv-row">
-                          <span className="kv-label">Name</span>
-                          <span className="kv-value">{viewUser.name}</span>
-                        </div>
-                      </div>
-                      <div className="col-12">
-                        <div className="kv-row">
-                          <span className="kv-label">Email</span>
-                          <span className="kv-value">{viewUser.email}</span>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="kv-row">
-                          <span className="kv-label">Phone</span>
-                          <span className="kv-value">{viewUser.phone_number || "-"}</span>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="kv-row">
-                          <span className="kv-label">Profession</span>
-                          <span className="kv-value">{viewUser.profession || "-"}</span>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="kv-row">
-                          <span className="kv-label">Coins</span>
-                          <span className="kv-value">{Number.isFinite(viewUser.coins) ? viewUser.coins : 0}</span>
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="kv-row">
-                          <span className="kv-label">Status</span>
-                          <span className="kv-value">{viewUser.is_blocked ? "Blocked" : "Active"}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                </div>
-
-                <div className="col-lg-7">
-                  <Card title="Performance" subtitle="Recent overview">
-                    <div className="row g-3 mb-3">
-                      <div className="col-md-4">
-                        <div className="mini-stat-card">
-                          <small>Total Tests</small>
-                          <strong>{selectedPerformance?.performance?.totalTests || 0}</strong>
-                        </div>
-                      </div>
-                      <div className="col-md-4">
-                        <div className="mini-stat-card">
-                          <small>Average Score</small>
-                          <strong>{selectedPerformance?.performance?.averageScore || 0}%</strong>
-                        </div>
-                      </div>
-                      <div className="col-md-4">
-                        <div className="mini-stat-card">
-                          <small>Weak Topics</small>
-                          <strong>{selectedPerformance?.performance?.weakestTopics?.join(", ") || "None"}</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="row g-3 mb-3">
-                      <div className="col-md-8">
-                        <label className="form-label create-label mb-2">Grant Coins</label>
-                        <div className="field-shell">
-                          <input
-                            type="number"
-                            min="1"
-                            className="form-control create-input"
-                            value={grantCoins}
-                            onChange={(event) => onGrantCoinsChange?.(event.target.value)}
-                            placeholder="Coins to add"
-                          />
-                        </div>
-                      </div>
-                      <div className="col-md-4 d-grid">
-                        <label className="form-label create-label mb-2">&nbsp;</label>
-                        <button
-                          className="btn btn-ak-primary"
-                          type="button"
-                          onClick={() => onGrantCoins?.(viewUser.id)}
-                          disabled={actionLoading}
-                        >
-                          Add Coins
-                        </button>
-                      </div>
-                    </div>
-
-                    <Card title="Recent Tests" subtitle="Latest attempts">
-                      <div className="d-grid gap-2">
-                        {selectedPerformance?.performance?.recentTests?.length ? (
-                          selectedPerformance.performance.recentTests.map((test) => (
-                            <div className="admin-test-row" key={test.id}>
-                              <div>
-                                <strong>{test.topic}</strong>
-                                <div className="text-muted small">
-                                  {new Date(test.date).toLocaleDateString()}
-                                </div>
-                              </div>
-                              <div>
-                                <small>Difficulty</small>
-                                <div className="fw-bold text-capitalize">{test.difficulty}</div>
-                              </div>
-                              <div>
-                                <small>Score</small>
-                                <div className="fw-bold">{test.score || 0}%</div>
-                              </div>
-                              <div className="text-muted small d-none d-md-block">
-                                {new Date(test.date).toLocaleString()}
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-muted mb-0">No tests found.</p>
-                        )}
-                      </div>
-                    </Card>
-                  </Card>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : null}
-
-      {viewOpen && blockOpen && viewUser ? (
-        <>
-          <button
-            type="button"
-            className="modal-backdrop-ak"
-            aria-label="Close block form"
-            onClick={() => setBlockOpen(false)}
-          />
-          <div className="modal-card-ak" role="dialog" aria-modal="true">
-            <div className="ak-card" style={{ width: "min(640px, 94vw)" }}>
-              <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
-                <div>
-                  <h5 className="fw-bold mb-1">Block User</h5>
-                  <p className="text-muted mb-0">Provide a reason to block this user.</p>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-outline-ak btn-sm"
-                  onClick={() => setBlockOpen(false)}
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="field-shell mb-3">
-                <textarea
-                  className="form-control create-input unblock-textarea"
-                  placeholder="Reason to block"
-                  value={blockReasonLocal}
-                  onChange={(event) => setBlockReasonLocal(event.target.value)}
-                  rows="3"
-                  required
-                />
-              </div>
-
-              <div className="d-flex gap-2 justify-content-end">
-                <button
-                  type="button"
-                  className="btn btn-outline-ak"
-                  onClick={() => setBlockOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline-danger"
-                  disabled={actionLoading || !blockReasonLocal.trim()}
-                  onClick={() => {
-                    onBlockReasonChange?.(blockReasonLocal);
-                    onBlockUser?.(viewUser.id);
-                    setBlockOpen(false);
-                    setViewOpen(false);
-                  }}
-                >
-                  Block Now
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : null}
     </>
   );
 }

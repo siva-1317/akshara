@@ -288,8 +288,8 @@ export default function AdminUserDetails({
             aria-label="Close block form"
             onClick={() => setBlockOpen(false)}
           />
-          <div className="modal-card-ak" role="dialog" aria-modal="true">
-            <div className="ak-card" style={{ width: "min(640px, 94vw)" }}>
+          <div className="modal-card-ak modal-ak-tight" role="dialog" aria-modal="true">
+            <div className="ak-card modal-ak-compact" style={{ width: "min(640px, 94vw)" }}>
               <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
                 <div>
                   <h5 className="fw-bold mb-1">Block User</h5>
@@ -349,8 +349,8 @@ export default function AdminUserDetails({
             aria-label="Close delete confirmation"
             onClick={() => setDeleteOpen(false)}
           />
-          <div className="modal-card-ak" role="dialog" aria-modal="true">
-            <div className="ak-card" style={{ width: "min(680px, 94vw)" }}>
+          <div className="modal-card-ak modal-ak-tight" role="dialog" aria-modal="true">
+            <div className="ak-card modal-ak-compact" style={{ width: "min(680px, 94vw)" }}>
               <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
                 <div>
                   <h5 className="fw-bold mb-1">Delete User</h5>

@@ -38,6 +38,38 @@ const isMissingColumnError = (error, columnName) => {
   );
 };
 
+const requireApprovedUser = async (req, res) => {
+  const userId = req.headers["x-user-id"];
+  const role = String(req.headers["x-user-role"] || "").toLowerCase();
+
+  if (!userId || role === "admin") {
+    return true;
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .select("approval_status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (isMissingTableError(error, "users") || isMissingColumnError(error, "approval_status")) {
+    return true;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  const status = String(data?.approval_status || "approved").toLowerCase();
+  if (status === "approved") {
+    return true;
+  }
+
+  const message = status === "rejected" ? "Your access request was rejected." : "Waiting for admin approval.";
+  res.status(403).json({ message });
+  return false;
+};
+
 const normalizeSubtopic = (value) => String(value || "").trim();
 
 const uniqueSubtopics = (items) => {
@@ -109,6 +141,10 @@ const chunk = (items, size) => {
 
 export const getTasks = async (req, res, next) => {
   try {
+    if (!(await requireApprovedUser(req, res))) {
+      return;
+    }
+
     const userId = req.headers["x-user-id"];
     if (!userId) {
       return res.status(401).json({ message: "Missing user context." });
@@ -158,6 +194,10 @@ export const getTasks = async (req, res, next) => {
 
 export const startTask = async (req, res, next) => {
   try {
+    if (!(await requireApprovedUser(req, res))) {
+      return;
+    }
+
     const userId = req.headers["x-user-id"];
     const { publishedTestId } = req.params;
 

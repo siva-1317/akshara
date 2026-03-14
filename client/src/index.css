@@ -2083,6 +2083,16 @@ body[data-theme="dark"] .create-input::placeholder {
   color: #dc3545;
 }
 
+.status-tag.warning {
+  background: rgba(255, 176, 32, 0.18);
+  color: #b86a00;
+}
+
+.status-tag.danger {
+  background: rgba(220, 53, 69, 0.14);
+  color: #dc3545;
+}
+
 .notification-btn {
   position: relative;
   width: 2.75rem;
@@ -2473,15 +2483,30 @@ body[data-theme="dark"] .modal-backdrop-ak {
   overflow-x: hidden;
 }
 
+.modal-card-ak.modal-ak-tight {
+  place-items: center;
+  padding: 1rem;
+}
+
 .modal-card-ak .ak-card {
   width: min(980px, 94vw);
   max-height: calc(100vh - (84px + 2.5rem));
   overflow: auto;
   overflow-x: hidden;
   box-sizing: border-box;
+  height: auto;
   padding: 1.75rem;
   padding-right: calc(1.75rem + 0.5rem);
   scrollbar-gutter: stable;
+}
+
+.modal-card-ak.modal-ak-tight .ak-card {
+  max-height: calc(100vh - 2rem);
+}
+
+.modal-card-ak .ak-card.modal-ak-compact {
+  padding: 1.25rem;
+  padding-right: calc(1.25rem + 0.5rem);
 }
 
 body[data-theme="dark"] .modal-card-ak .ak-card {

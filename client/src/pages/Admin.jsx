@@ -4,9 +4,11 @@ import { useToast } from "../components/ToastProvider";
 import {
   addTopic,
   approveAdminCoinRequest,
+  approveAdminUser,
   blockAdminUser,
   clearAdminFeedback,
   clearAdminFeedbacks,
+  deleteAdminUser,
   getAdminCoinRequests,
   getAdminFeedbacks,
   getAdminAnalytics,
@@ -19,12 +21,15 @@ import {
   markAdminFeedbackReviewed,
   rejectAdminUnblockRequest,
   rejectAdminCoinRequest,
+  rejectAdminUser,
+  revokeAdminUserCoins,
   unblockAdminUser
 } from "../api";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminRequests from "./admin/AdminRequests";
 import AdminCertificates from "./admin/AdminCertificates";
 import AdminTopics from "./admin/AdminTopics";
+import AdminUserDetails from "./admin/AdminUserDetails";
 import AdminUsers from "./admin/AdminUsers";
 import AdminFeedbacks from "./admin/AdminFeedbacks";
 import AdminOffers from "./admin/AdminOffers";
@@ -33,7 +38,7 @@ const useStoredUser = () => JSON.parse(localStorage.getItem("aksharaUser") || "n
 
 const SideLink = ({ to, label, pill = null }) => {
   const location = useLocation();
-  const active = location.pathname === to;
+  const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
   return (
     <Link className={`admin-side-link ${active ? "active" : ""}`} to={to}>
       <span>{label}</span>
@@ -82,6 +87,16 @@ export default function Admin() {
     [feedbacks]
   );
   const activeOffersTotal = analytics?.offers?.activeTotal;
+  const waitingCount = useMemo(
+    () =>
+      (users || []).filter(
+        (user) =>
+          user.role !== "admin" &&
+          !user.is_blocked &&
+          String(user.approval_status || "approved").toLowerCase() !== "approved"
+      ).length,
+    [users]
+  );
 
   const loadAdmin = async () => {
     try {
@@ -241,12 +256,40 @@ export default function Admin() {
     }
   };
 
-  const handleUnblock = async (userId, requestId = null) => {
+  const handleApproveUser = async (userId) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      await approveAdminUser(userId);
+      await loadAdmin();
+      toast.success("User approved.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to approve user.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectUser = async (userId) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      await rejectAdminUser(userId);
+      await loadAdmin();
+      toast.warning("User rejected.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to reject user.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUnblock = async (userId, requestId = null, noteOverride = null) => {
     try {
       setActionLoading(true);
       setError("");
       await unblockAdminUser(userId, {
-        note,
+        note: noteOverride == null ? note : noteOverride,
         requestId
       });
       setNote("");
@@ -274,6 +317,40 @@ export default function Admin() {
       toast.success("Coins granted successfully.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to grant coins.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRevokeCoins = async (userId) => {
+    const amount = Number(grantCoins);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid coins amount.");
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setError("");
+      await revokeAdminUserCoins(userId, { coins: amount });
+      await loadAdmin();
+      toast.warning("Coins revoked.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to revoke coins.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      await deleteAdminUser(userId);
+      await loadAdmin();
+      toast.warning("User deleted permanently.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to delete user.");
     } finally {
       setActionLoading(false);
     }
@@ -338,7 +415,7 @@ export default function Admin() {
           <SideLink
             to="/admin/users"
             label="Users"
-            pill={`${users.length - blockedCount} / ${blockedCount}`}
+            pill={`${users.length - blockedCount} / ${blockedCount}${waitingCount ? ` (${waitingCount} waiting)` : ""}`}
           />
           <SideLink to="/admin/topics" label="Topics" pill={topics.length} />
           <SideLink to="/admin/requests" label="Requests" pill={pendingCount} />
@@ -364,27 +441,64 @@ export default function Admin() {
                 />
               }
             />
-            <Route
-              path="users"
-              element={
-                <AdminUsers
-                  users={users}
-                  selectedUserId={selectedUserId}
-                  onSelectUser={setSelectedUserId}
-                  selectedPerformance={selectedPerformance}
-                  blockReason={blockReason}
-                  onBlockReasonChange={setBlockReason}
-                  note={note}
-                  onNoteChange={setNote}
-                  onBlockUser={handleBlock}
-                  onUnblockUser={(userId) => handleUnblock(userId)}
-                  grantCoins={grantCoins}
-                  onGrantCoinsChange={setGrantCoins}
-                  onGrantCoins={handleGrantCoins}
-                  actionLoading={actionLoading}
-                />
-              }
-            />
+          <Route
+            path="users"
+            element={
+              <AdminUsers
+                users={users}
+                selectedUserId={selectedUserId}
+                onSelectUser={setSelectedUserId}
+                selectedPerformance={selectedPerformance}
+                blockReason={blockReason}
+                onBlockReasonChange={setBlockReason}
+                note={note}
+                onNoteChange={setNote}
+                onBlockUser={handleBlock}
+                onUnblockUser={(userId) => handleUnblock(userId)}
+                onApproveUser={handleApproveUser}
+                onRejectUser={handleRejectUser}
+                grantCoins={grantCoins}
+                onGrantCoinsChange={setGrantCoins}
+                onGrantCoins={handleGrantCoins}
+                actionLoading={actionLoading}
+              />
+            }
+          />
+          <Route
+            path="users/:userId"
+            element={
+              <AdminUserDetails
+                users={users}
+                selectedPerformance={selectedPerformance}
+                onSelectUser={setSelectedUserId}
+                onBlockUser={async (userId, reason) => {
+                  if (!userId || !String(reason || "").trim()) {
+                    setError("Provide a block reason.");
+                    return;
+                  }
+
+                  try {
+                    setActionLoading(true);
+                    setError("");
+                    await blockAdminUser(userId, { reason: String(reason).trim() });
+                    await loadAdmin();
+                    toast.warning("User blocked.");
+                  } catch (err) {
+                    setError(err.response?.data?.message || "Unable to block user.");
+                  } finally {
+                    setActionLoading(false);
+                  }
+                }}
+                onUnblockUser={(userId) => handleUnblock(userId, null, "")}
+                onDeleteUser={handleDeleteUser}
+                grantCoins={grantCoins}
+                onGrantCoinsChange={setGrantCoins}
+                onGrantCoins={handleGrantCoins}
+                onRevokeCoins={handleRevokeCoins}
+                actionLoading={actionLoading}
+              />
+            }
+          />
             <Route
               path="topics"
               element={

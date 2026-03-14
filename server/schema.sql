@@ -233,7 +233,7 @@ values
 on conflict (name) do nothing;
 
 insert into users (id, name, email, role, password)
-values ('admin-1', 'AKSHARA Admin', 'admin@gmail.com', 'admin', 'admin123')
+values ('admin-1', 'AKSHARA Admin', 'siva636938@gmail.com', 'admin', 'admin123')
 on conflict (id) do update
 set
   name = excluded.name,

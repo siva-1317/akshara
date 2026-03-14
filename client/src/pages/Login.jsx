@@ -29,6 +29,11 @@ export default function Login() {
       navigate("/blocked");
       return;
     }
+    const approvalStatus = String(user.approvalStatus || "approved").toLowerCase();
+    if (user.role !== "admin" && approvalStatus !== "approved") {
+      navigate("/waiting");
+      return;
+    }
     navigate(user.role === "admin" ? "/admin" : "/dashboard");
   };
 
@@ -103,7 +108,7 @@ export default function Login() {
                           name="email"
                           value={form.email}
                           onChange={handleChange}
-                          placeholder="admin@gmail.com"
+                          placeholder="siva636938@gmail.com"
                         />
                       </div>
                       <div>
@@ -122,7 +127,7 @@ export default function Login() {
                       </button>
                     </form>
                     <p className="text-muted small mb-0 mt-3">
-                      Default admin: `admin@gmail.com` / `admin123`
+                      Default admin: `siva636938@gmail.com` / `admin123`
                     </p>
                   </div>
                 </div>

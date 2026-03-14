@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { getCurrentUser } from "./api";
 import AppNavbar from "./components/Navbar";
 import AdminNavbar from "./components/AdminNavbar";
+import LandingNavbar from "./components/LandingNavbar";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -14,6 +15,7 @@ import Review from "./pages/Review";
 import Admin from "./pages/Admin";
 import Blocked from "./pages/Blocked";
 import Tasks from "./pages/Tasks";
+import Waiting from "./pages/Waiting";
 import { ToastProvider } from "./components/ToastProvider";
 
 const getStoredUser = () => JSON.parse(localStorage.getItem("aksharaUser") || "null");
@@ -37,7 +39,31 @@ const UserRoute = ({ children }) => {
   if (user.isBlocked) {
     return <Navigate to="/blocked" replace />;
   }
+  const approvalStatus = String(user.approvalStatus || "approved").toLowerCase();
+  if (approvalStatus !== "approved" && user.role !== "admin") {
+    return <Navigate to="/waiting" replace />;
+  }
   return user.role === "admin" ? <Navigate to="/admin/dashboard" replace /> : children;
+};
+
+const PendingRoute = ({ children }) => {
+  const user = getStoredUser();
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  if (user.isBlocked) {
+    return <Navigate to="/blocked" replace />;
+  }
+  if (user.role === "admin") {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+
+  const approvalStatus = String(user.approvalStatus || "approved").toLowerCase();
+  if (approvalStatus === "approved") {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
 };
 
 const AppLayout = ({ theme, onToggleTheme }) => {
@@ -45,6 +71,16 @@ const AppLayout = ({ theme, onToggleTheme }) => {
   const user = getStoredUser();
   const isAdmin = user?.role === "admin";
   const showAdminNavbar = isAdmin && !["/", "/login"].includes(location.pathname);
+  const showLandingNavbar = location.pathname === "/";
+  const hideNavbar = location.pathname === "/login";
+
+  if (hideNavbar) {
+    return null;
+  }
+
+  if (showLandingNavbar) {
+    return <LandingNavbar theme={theme} onToggleTheme={onToggleTheme} />;
+  }
 
   const Navbar = showAdminNavbar ? AdminNavbar : AppNavbar;
   return <Navbar theme={theme} onToggleTheme={onToggleTheme} />;
@@ -107,6 +143,14 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/blocked" element={<Blocked />} />
+          <Route
+            path="/waiting"
+            element={
+              <PendingRoute>
+                <Waiting />
+              </PendingRoute>
+            }
+          />
           <Route
             path="/dashboard"
             element={

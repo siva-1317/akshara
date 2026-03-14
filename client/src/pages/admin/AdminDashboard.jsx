@@ -90,6 +90,32 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
   const passRatePercent = analytics?.tests?.passRatePercent;
   const activeOffersTotal = analytics?.offers?.activeTotal;
   const activeOfferUsers = analytics?.offers?.activeUsers;
+  const offersByType = analytics?.offers?.byType || null;
+  const certificatesTotal = analytics?.certificates?.total;
+  const certificatesUniqueUsers = analytics?.certificates?.uniqueUsers;
+  const certificatesSeries = analytics?.certificates?.issuedSeries?.monthly || [];
+
+  const offerTypeSegments = useMemo(() => {
+    if (!offersByType) {
+      return [];
+    }
+
+    const palette = {
+      time: "var(--ak-chart-indigo)",
+      days: "var(--ak-chart-amber)",
+      lifetime: "var(--ak-chart-green)",
+      unknown: "var(--ak-chart-slate)"
+    };
+
+    return Object.entries(offersByType)
+      .map(([key, value]) => ({
+        key,
+        label: prettyKey(key),
+        value: numberOrZero(value),
+        color: palette[String(key || "").toLowerCase()] || "var(--ak-chart-slate)"
+      }))
+      .filter((segment) => segment.value > 0);
+  }, [offersByType]);
 
   return (
     <>
@@ -248,11 +274,15 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
               </div>
               <div className="ak-analytics-total-row">
                 <span className="text-muted">Active Offers</span>
-                <strong>{activeOffersTotal == null ? "â€”" : numberOrZero(activeOffersTotal)}</strong>
+                <strong>{activeOffersTotal == null ? "—" : numberOrZero(activeOffersTotal)}</strong>
               </div>
               <div className="ak-analytics-total-row">
                 <span className="text-muted">Offer Users</span>
-                <strong>{activeOfferUsers == null ? "â€”" : numberOrZero(activeOfferUsers)}</strong>
+                <strong>{activeOfferUsers == null ? "—" : numberOrZero(activeOfferUsers)}</strong>
+              </div>
+              <div className="ak-analytics-total-row">
+                <span className="text-muted">Certificates Issued</span>
+                <strong>{certificatesTotal == null ? "—" : numberOrZero(certificatesTotal)}</strong>
               </div>
               <div className="ak-analytics-total-row">
                 <span className="text-muted">Roles</span>
@@ -271,6 +301,55 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
                 Open Certificates
               </Link>
             </div>
+          </Card>
+        </div>
+      </div>
+
+      <div className="row g-4 mb-4">
+        <div className="col-xl-4">
+          <Card title="Active Offer Types" subtitle="Current active offers">
+            {offerTypeSegments.length ? (
+              <div className="ak-analytics-split">
+                <div className="d-flex justify-content-center">
+                  <DonutChart
+                    size={190}
+                    thickness={18}
+                    segments={offerTypeSegments}
+                    centerLabelTop={activeOffersTotal == null ? "—" : numberOrZero(activeOffersTotal)}
+                    centerLabelBottom="Active"
+                  />
+                </div>
+                <div className="ak-analytics-legend">
+                  {offerTypeSegments.map((segment) => (
+                    <div key={segment.key} className="ak-analytics-legend-row">
+                      <span className="ak-analytics-dot" style={{ background: segment.color }} aria-hidden="true" />
+                      <span className="ak-analytics-legend-label">{segment.label}</span>
+                      <span className="ak-analytics-legend-metric">{segment.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-muted mb-0">No active offer data yet.</p>
+            )}
+          </Card>
+        </div>
+
+        <div className="col-xl-8">
+          <Card title="Certificates Issued" subtitle="Last 12 months">
+            {analytics?.certificates?.issuedSeries ? (
+              <>
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                  <div className="text-muted small">
+                    Total: {certificatesTotal == null ? "—" : numberOrZero(certificatesTotal)} • Unique users:{" "}
+                    {certificatesUniqueUsers == null ? "—" : numberOrZero(certificatesUniqueUsers)}
+                  </div>
+                </div>
+                <TimeSeriesChart data={certificatesSeries} height={220} />
+              </>
+            ) : (
+              <p className="text-muted mb-0">Certificates analytics unavailable (schema not applied).</p>
+            )}
           </Card>
         </div>
       </div>

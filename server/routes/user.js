@@ -34,6 +34,8 @@ import {
   revokeCoinsFromUser,
   submitFeedback,
   unblockUser,
+  approveAdminUser,
+  rejectAdminUser,
   updateAdminOffer,
   upsertAdminOfferTemplate
 } from "../controllers/testController.js";
@@ -48,6 +50,8 @@ const requireAdmin = (req, res, next) => {
 };
 
 router.get("/admin/users", requireAdmin, getAdminUsers);
+router.post("/admin/users/:userId/approve", requireAdmin, approveAdminUser);
+router.post("/admin/users/:userId/reject", requireAdmin, rejectAdminUser);
 router.get("/admin/users/:userId/performance", requireAdmin, getAdminUserPerformance);
 router.delete("/admin/users/:userId", requireAdmin, deleteAdminUser);
 router.post("/admin/users/:userId/block", requireAdmin, blockUser);

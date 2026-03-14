@@ -61,6 +61,8 @@ export const getAdminUserPerformance = (userId) => api.get(`/admin/users/${userI
 export const deleteAdminUser = (userId) => api.delete(`/admin/users/${userId}`);
 export const blockAdminUser = (userId, payload) => api.post(`/admin/users/${userId}/block`, payload);
 export const unblockAdminUser = (userId, payload) => api.post(`/admin/users/${userId}/unblock`, payload);
+export const approveAdminUser = (userId) => api.post(`/admin/users/${userId}/approve`);
+export const rejectAdminUser = (userId) => api.post(`/admin/users/${userId}/reject`);
 export const getAdminTests = () => api.get("/admin/tests");
 export const deleteAdminTest = (testId) => api.delete(`/admin/tests/${testId}`);
 export const getTopics = () => api.get("/admin/topics");
