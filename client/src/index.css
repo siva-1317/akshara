@@ -41,14 +41,15 @@ a {
 .login-shell {
   position: relative;
   margin: 0;
-  min-height: 100vh;   /* full screen height */
+  min-height: 100vh;
+  min-height: 100dvh;
   width: 100%;
 
   display: flex;       /* use flex for centering */
   justify-content: center; /* horizontal */
   align-items: center;     /* vertical */
 
-  padding: 1rem;
+  padding: clamp(0.75rem, 3vw, 1.25rem);
 }
 
 .login-back {
@@ -67,6 +68,11 @@ a {
   width: min(520px, 92vw);
   border-radius: 1.6rem;
   box-shadow: 0 24px 70px rgba(255, 106, 0, 0.12);
+  padding: 1.25rem;
+}
+
+.login-card.ak-card {
+  height: auto;
   padding: 1.25rem;
 }
 
@@ -96,8 +102,9 @@ a {
 }
 
 .login-google-wrap {
-  display: grid;
-  place-items: center;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 .login-google-wrap.is-loading {
@@ -118,6 +125,33 @@ a {
 @keyframes ak-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 420px) {
+  .login-card {
+    width: min(520px, 100%);
+    border-radius: 1.25rem;
+    padding: 1rem;
+  }
+
+  .login-card.ak-card {
+    padding: 1rem;
+  }
+
+  .login-provider {
+    padding: 0.9rem;
+    border-radius: 1.15rem;
+  }
+
+  .login-provider-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .login-loading {
+    width: 100%;
+    justify-content: center;
   }
 }
 
@@ -1430,6 +1464,10 @@ body[data-theme="dark"] {
 body[data-theme="dark"] .login-provider {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
+}
+
+body[data-theme="dark"] .login-card {
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.45);
 }
 
 body[data-theme="dark"] .login-loading {

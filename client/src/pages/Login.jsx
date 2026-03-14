@@ -9,7 +9,9 @@ export default function Login() {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [googleWidth, setGoogleWidth] = useState(360);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const isDark = typeof document !== "undefined" && document.body?.dataset?.theme === "dark";
 
   useEffect(() => {
     if (!error) {
@@ -18,6 +20,18 @@ export default function Login() {
     toast.error(error);
     setError("");
   }, [error, toast]);
+
+  useEffect(() => {
+    const computeWidth = () => {
+      const viewport = typeof window !== "undefined" ? window.innerWidth : 360;
+      const proposed = Math.min(360, Math.max(240, viewport - 64));
+      setGoogleWidth(proposed);
+    };
+
+    computeWidth();
+    window.addEventListener("resize", computeWidth);
+    return () => window.removeEventListener("resize", computeWidth);
+  }, []);
 
   const persistUser = (user) => {
     localStorage.setItem("aksharaUser", JSON.stringify(user));
@@ -63,7 +77,7 @@ export default function Login() {
         </div>
         <h2 className="fw-bold mb-2">Welcome back</h2>
         <p className="text-muted mb-4">
-          Sign in Akshara with google account...
+          Sign in to Akshara with your Google account.
         </p>
 
         <div className="login-provider">
@@ -91,11 +105,11 @@ export default function Login() {
                 onSuccess={handleGoogleSuccess}
                 onError={() => setError("Google sign-in could not be completed.")}
                 useOneTap
-                theme="outline"
+                theme={isDark ? "filled_black" : "outline"}
                 shape="pill"
                 size="large"
                 text="continue_with"
-                width="360"
+                width={String(googleWidth)}
               />
             </div>
           )}
