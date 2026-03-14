@@ -10,7 +10,7 @@ import {
   upsertAdminOfferTemplate
 } from "../../api";
 import CustomSelect from "../../components/CustomSelect";
-import { useIslandToast } from "../../components/IslandToastProvider";
+import { useToast } from "../../components/ToastProvider";
 import Pagination from "../../components/Pagination";
 
 const clampPage = (value, totalPages) => Math.max(1, Math.min(Number(value) || 1, totalPages));
@@ -63,7 +63,7 @@ const formatRemaining = (endsAt) => {
 };
 
 export default function AdminOffers({ users }) {
-  const toast = useIslandToast();
+  const toast = useToast();
   const [tab, setTab] = useState("active");
   const [search, setSearch] = useState("");
   const [selectMode, setSelectMode] = useState("manual");

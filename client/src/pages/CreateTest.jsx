@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createTest, generateQuestions, getTopics, suggestSubtopics } from "../api";
+import { createTest, generateQuestions, getDashboard, getTopics, suggestSubtopics } from "../api";
 import CustomSelect from "../components/CustomSelect";
 import { useToast } from "../components/ToastProvider";
 
@@ -48,12 +48,95 @@ export default function CreateTest() {
   const user = JSON.parse(localStorage.getItem("aksharaUser") || "null");
   const coins = Number.isFinite(user?.coins) ? user.coins : 0;
   const [form, setForm] = useState(defaultForm);
+  const [activeOffer, setActiveOffer] = useState(null);
+  const [paymentMode, setPaymentMode] = useState("coins");
+  const [paymentModeInitialized, setPaymentModeInitialized] = useState(false);
   const [topics, setTopics] = useState(["JavaScript", "React", "Node.js", "SQL"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [suggestedSubtopics, setSuggestedSubtopics] = useState([]);
   const [selectedSubtopics, setSelectedSubtopics] = useState([]);
   const [customSubtopic, setCustomSubtopic] = useState("");
+  const [subtopicsLoading, setSubtopicsLoading] = useState(false);
+  const [subtopicsError, setSubtopicsError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadOffer = async () => {
+      if (!user?.id) {
+        setActiveOffer(null);
+        return;
+      }
+
+      try {
+        const { data } = await getDashboard(user.id);
+        if (!alive) {
+          return;
+        }
+        setActiveOffer(data?.offer || null);
+      } catch {
+        if (alive) {
+          setActiveOffer(null);
+        }
+      }
+    };
+
+    loadOffer();
+
+    return () => {
+      alive = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (paymentModeInitialized) {
+      return;
+    }
+
+    if (activeOffer) {
+      setPaymentMode("offer");
+    }
+
+    setPaymentModeInitialized(true);
+  }, [activeOffer, paymentModeInitialized]);
+
+  const usingOffer = paymentMode === "offer" && !!activeOffer;
+
+  const offerLocks = useMemo(() => {
+    const fixedQuestionCount = activeOffer?.fixedQuestionCount ?? null;
+    const fixedDifficulty = activeOffer?.fixedDifficulty ?? null;
+    const fixedExamType = activeOffer?.fixedExamType ?? null;
+
+    return {
+      fixedQuestionCount,
+      fixedDifficulty,
+      fixedExamType,
+      questionCountLocked: usingOffer && fixedQuestionCount != null,
+      difficultyLocked: usingOffer && !!fixedDifficulty,
+      examTypeLocked: usingOffer && !!fixedExamType
+    };
+  }, [activeOffer?.fixedDifficulty, activeOffer?.fixedExamType, activeOffer?.fixedQuestionCount, usingOffer]);
+
+  useEffect(() => {
+    if (!usingOffer) {
+      return;
+    }
+
+    setForm((current) => {
+      const next = { ...current };
+      if (offerLocks.fixedQuestionCount != null) {
+        next.questionCount = offerLocks.fixedQuestionCount;
+      }
+      if (offerLocks.fixedDifficulty) {
+        next.difficulty = offerLocks.fixedDifficulty;
+      }
+      if (offerLocks.fixedExamType) {
+        next.examType = offerLocks.fixedExamType;
+      }
+      return next;
+    });
+  }, [offerLocks.fixedDifficulty, offerLocks.fixedExamType, offerLocks.fixedQuestionCount, usingOffer]);
 
   useEffect(() => {
     if (!error) {
@@ -62,8 +145,6 @@ export default function CreateTest() {
     toast.error(error);
     setError("");
   }, [error, toast]);
-  const [subtopicsLoading, setSubtopicsLoading] = useState(false);
-  const [subtopicsError, setSubtopicsError] = useState("");
   const topicOptions = [...topics.map((topic) => ({ value: topic, label: topic })), {
     value: "__custom__",
     label: "Custom Topic"
@@ -113,6 +194,10 @@ export default function CreateTest() {
       return;
     }
 
+    if (usingOffer) {
+      return;
+    }
+
     setForm((current) => {
       const nextCount = Math.min(Number(current.questionCount) || 1, coins);
       if (nextCount === current.questionCount) {
@@ -120,7 +205,7 @@ export default function CreateTest() {
       }
       return { ...current, questionCount: nextCount };
     });
-  }, [coins]);
+  }, [coins, usingOffer]);
 
   useEffect(() => {
     let active = true;
@@ -203,7 +288,7 @@ export default function CreateTest() {
     try {
       setLoading(true);
       setError("");
-      if (!coins || coins <= 0) {
+      if (!usingOffer && (!coins || coins <= 0)) {
         throw new Error("Not enough coins to generate a test.");
       }
       const { data: created } = await createTest({
@@ -213,7 +298,8 @@ export default function CreateTest() {
         questionCount: Number(form.questionCount),
         totalTime: Number(form.totalTime),
         examType: form.examType,
-        subtopics: selectedSubtopics
+        subtopics: selectedSubtopics,
+        paymentMode: usingOffer ? "offer" : "coins"
       });
 
       const nextUser = { ...user, coins: created.coins };
@@ -222,7 +308,7 @@ export default function CreateTest() {
       await generateQuestions({
         testId: created.test.id,
         topic: selectedTopic,
-        difficulty: form.difficulty,
+        difficulty: created?.test?.difficulty || form.difficulty,
         count: Number(created.test.question_count || form.questionCount),
         subtopics: selectedSubtopics
       });
@@ -270,6 +356,33 @@ export default function CreateTest() {
               <div className="col-lg-7">
                 <div className="form-surface h-100">
                   <div className="row g-4">
+                    {activeOffer ? (
+                      <div className="col-12">
+                        <label className="form-label create-label">Payment Mode</label>
+                        <div className="btn-group w-100" role="group" aria-label="Payment mode">
+                          <button
+                            type="button"
+                            className={`btn ${usingOffer ? "btn-ak-primary" : "btn-outline-secondary"}`}
+                            onClick={() => setPaymentMode("offer")}
+                          >
+                            Use Offer
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn ${!usingOffer ? "btn-ak-primary" : "btn-outline-secondary"}`}
+                            onClick={() => setPaymentMode("coins")}
+                          >
+                            Use Coins
+                          </button>
+                        </div>
+                        <small className="text-muted d-block mt-2">
+                          {usingOffer
+                            ? "Offer active: tests do not consume coins. Admin restrictions apply."
+                            : "Coins mode: all options available (coins will be used)."}
+                        </small>
+                      </div>
+                    ) : null}
+
                     <div className="col-md-6">
                       <label className="form-label create-label">Topic</label>
                       <div className="field-shell">
@@ -377,15 +490,28 @@ export default function CreateTest() {
                         <input
                           type="number"
                           min="1"
-                          max={coins > 0 ? coins : 1}
+                          max={usingOffer ? 100 : coins > 0 ? coins : 1}
                           className="form-control create-input"
                           name="questionCount"
                           value={form.questionCount}
                           onChange={handleChange}
+                          disabled={offerLocks.questionCountLocked}
                         />
                       </div>
                       <small className="text-muted d-block mt-2">
-                        Coins available: <strong>{coins}</strong> (1 coin per question)
+                        {usingOffer ? (
+                          offerLocks.questionCountLocked ? (
+                            <>
+                              Fixed by admin: <strong>{offerLocks.fixedQuestionCount}</strong> questions.
+                            </>
+                          ) : (
+                            "Offer mode: choose any question count (coins won't be used)."
+                          )
+                        ) : (
+                          <>
+                            Coins available: <strong>{coins}</strong> (1 coin per question)
+                          </>
+                        )}
                       </small>
                     </div>
 
@@ -412,8 +538,11 @@ export default function CreateTest() {
                               type="button"
                               className={`choice-card ${form.difficulty === option.value ? "active" : ""}`}
                               onClick={() =>
-                                setForm((current) => ({ ...current, difficulty: option.value }))
+                                setForm((current) =>
+                                  offerLocks.difficultyLocked ? current : { ...current, difficulty: option.value }
+                                )
                               }
+                              disabled={offerLocks.difficultyLocked}
                             >
                               <span className="choice-title">{option.title}</span>
                               <span className="choice-text">{option.text}</span>
@@ -421,6 +550,11 @@ export default function CreateTest() {
                           </div>
                         ))}
                       </div>
+                      {offerLocks.difficultyLocked ? (
+                        <small className="text-muted d-block mt-2">
+                          Fixed by admin: <strong className="text-capitalize">{offerLocks.fixedDifficulty}</strong>
+                        </small>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -436,14 +570,22 @@ export default function CreateTest() {
                         type="button"
                         className={`mode-choice ${form.examType === mode.value ? "active" : ""}`}
                         onClick={() =>
-                          setForm((current) => ({ ...current, examType: mode.value }))
+                          setForm((current) =>
+                            offerLocks.examTypeLocked ? current : { ...current, examType: mode.value }
+                          )
                         }
+                        disabled={offerLocks.examTypeLocked}
                       >
                         <span className="mode-choice-title">{mode.title}</span>
                         <span className="mode-choice-text">{mode.text}</span>
                       </button>
                     ))}
                   </div>
+                  {offerLocks.examTypeLocked ? (
+                    <small className="text-muted d-block mt-3">
+                      Fixed by admin: <strong>{offerLocks.fixedExamType}</strong>
+                    </small>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -453,7 +595,7 @@ export default function CreateTest() {
                 Topic: <strong>{form.topic === "__custom__" ? form.customTopic || "Custom Topic" : form.topic}</strong>
                 {" • "}Difficulty: <strong className="text-capitalize">{form.difficulty}</strong>
               </div>
-              <button className="btn btn-ak-primary btn-lg px-4" disabled={loading || coins <= 0}>
+              <button className="btn btn-ak-primary btn-lg px-4" disabled={loading || (!usingOffer && coins <= 0)}>
                 {loading ? "Preparing Test..." : "Generate Test"}
               </button>
             </div>

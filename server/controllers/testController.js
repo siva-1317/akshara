@@ -2101,11 +2101,60 @@ export const getAdminAnalytics = async (_req, res, next) => {
       };
     }
 
+    const fetchActiveOffers = async () => {
+      const pageSize = 1000;
+      const maxRows = 50000;
+      const rows = [];
+      const nowIso = new Date().toISOString();
+
+      for (let from = 0; from < maxRows; from += pageSize) {
+        const { data, error } = await supabase
+          .from("offers")
+          .select("user_id, offer_type")
+          .eq("status", "active")
+          .lte("starts_at", nowIso)
+          .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
+          .order("created_at", { ascending: false })
+          .range(from, from + pageSize - 1);
+
+        if (isMissingTableError(error, "offers")) {
+          return { rows: [], offersTableMissing: true };
+        }
+
+        if (error) {
+          throw error;
+        }
+
+        const batch = data || [];
+        rows.push(...batch);
+
+        if (batch.length < pageSize) {
+          break;
+        }
+      }
+
+      return { rows, offersTableMissing: false };
+    };
+
+    const activeOffersResult = await fetchActiveOffers();
+    const activeOffersRows = activeOffersResult.rows || [];
+    const activeOffersByType = activeOffersRows.reduce((accumulator, offer) => {
+      const key = String(offer.offer_type || "unknown").trim().toLowerCase() || "unknown";
+      accumulator[key] = (accumulator[key] || 0) + 1;
+      return accumulator;
+    }, {});
+    const activeOfferUsers = new Set(activeOffersRows.map((row) => row.user_id).filter(Boolean)).size;
+
     return res.json({
       answers: {
         total: answersTotal,
         correct: answersCorrect,
         accuracyPercent
+      },
+      offers: {
+        activeTotal: activeOffersResult.offersTableMissing ? null : activeOffersRows.length,
+        activeUsers: activeOffersResult.offersTableMissing ? null : activeOfferUsers,
+        byType: activeOffersResult.offersTableMissing ? null : activeOffersByType
       },
       tests: {
         total: testsTotal,

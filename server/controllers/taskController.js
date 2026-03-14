@@ -374,28 +374,35 @@ export const createAdminPublishedTest = async (req, res, next) => {
 
     const now = new Date().toISOString();
 
-    const { data: createdTask, error: createError } = await supabase
-      .from("published_tests")
-      .insert({
-        created_by: adminUserId,
-        title: title.trim(),
-        description: String(description || "").trim() || null,
-        topic: topic.trim(),
-        sub_topics: cleanedSubtopics,
-        difficulty: difficulty.trim(),
-        exam_type: examType ? String(examType).trim() : null,
-        question_count: safeQuestionCount,
-        total_time: totalTime != null ? Math.max(1, Math.floor(Number(totalTime))) : null,
-        pass_mark: safePass,
-        reward_type: String(rewardType || "certificate").trim(),
-        reward_coins: safeCoins,
-        status: "published",
-        published_at: now,
-        created_at: now,
-        updated_at: now
-      })
-      .select("*")
-      .single();
+    const insertPayload = {
+      created_by: adminUserId,
+      title: title.trim(),
+      description: String(description || "").trim() || null,
+      topic: topic.trim(),
+      sub_topics: cleanedSubtopics,
+      difficulty: difficulty.trim(),
+      exam_type: examType ? String(examType).trim() : null,
+      question_count: safeQuestionCount,
+      total_time: totalTime != null ? Math.max(1, Math.floor(Number(totalTime))) : null,
+      pass_mark: safePass,
+      reward_type: String(rewardType || "certificate").trim(),
+      reward_coins: safeCoins,
+      status: "published",
+      published_at: now,
+      created_at: now,
+      updated_at: now
+    };
+
+    const tryInsert = async (payload) =>
+      supabase.from("published_tests").insert(payload).select("*").single();
+
+    let { data: createdTask, error: createError } = await tryInsert(insertPayload);
+
+    if (isMissingColumnError(createError, "exam_type")) {
+      const retryPayload = { ...insertPayload };
+      delete retryPayload.exam_type;
+      ({ data: createdTask, error: createError } = await tryInsert(retryPayload));
+    }
 
     if (isMissingTableError(createError, "published_tests")) {
       return res.status(503).json({ message: "Tasks are not configured yet. Ask admin to run the latest schema." });

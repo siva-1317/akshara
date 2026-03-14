@@ -88,6 +88,8 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
 
   const accuracyPercent = analytics?.answers?.accuracyPercent;
   const passRatePercent = analytics?.tests?.passRatePercent;
+  const activeOffersTotal = analytics?.offers?.activeTotal;
+  const activeOfferUsers = analytics?.offers?.activeUsers;
 
   return (
     <>
@@ -245,6 +247,14 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
                 <strong>{usersBlocked}</strong>
               </div>
               <div className="ak-analytics-total-row">
+                <span className="text-muted">Active Offers</span>
+                <strong>{activeOffersTotal == null ? "â€”" : numberOrZero(activeOffersTotal)}</strong>
+              </div>
+              <div className="ak-analytics-total-row">
+                <span className="text-muted">Offer Users</span>
+                <strong>{activeOfferUsers == null ? "â€”" : numberOrZero(activeOfferUsers)}</strong>
+              </div>
+              <div className="ak-analytics-total-row">
                 <span className="text-muted">Roles</span>
                 <strong>{roleRows.length || "—"}</strong>
               </div>
@@ -253,7 +263,10 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
                 <strong>{professionRows.length || "—"}</strong>
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-3 d-grid gap-2">
+              <Link className="btn btn-sm btn-outline-ak w-100" to="/admin/offers">
+                Open Offers
+              </Link>
               <Link className="btn btn-sm btn-ak-primary w-100" to="/admin/certificates">
                 Open Certificates
               </Link>
@@ -320,4 +333,3 @@ export default function AdminDashboard({ analytics, requests, coinRequests, noti
     </>
   );
 }
-

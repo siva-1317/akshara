@@ -38,6 +38,41 @@ const contributionTone = (count, maxCount) => {
   return "level-1";
 };
 
+const formatCountdown = (milliseconds) => {
+  if (milliseconds == null) {
+    return "Lifetime";
+  }
+
+  const value = Number(milliseconds);
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+
+  if (value <= 0) {
+    return "Expired";
+  }
+
+  const totalSeconds = Math.floor(value / 1000);
+  const days = Math.floor(totalSeconds / (24 * 3600));
+  const hours = Math.floor((totalSeconds % (24 * 3600)) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${seconds}s`;
+};
+
 export default function Dashboard() {
   const storedUser = JSON.parse(localStorage.getItem("aksharaUser") || "null");
   const toast = useToast();
@@ -62,6 +97,7 @@ export default function Dashboard() {
   const [taskAnnouncement, setTaskAnnouncement] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
+  const [offerNowMs, setOfferNowMs] = useState(Date.now());
 
   useEffect(() => {
     if (!error) {
@@ -182,6 +218,25 @@ export default function Dashboard() {
       window.removeEventListener("focus", handleFocus);
     };
   }, [storedUser?.id]);
+
+  useEffect(() => {
+    const offer = dashboard?.offer;
+    if (!offer?.id) {
+      return undefined;
+    }
+
+    const serverTimeMs = offer?.serverTime ? Date.parse(offer.serverTime) : NaN;
+    const offsetMs = Number.isFinite(serverTimeMs) ? Date.now() - serverTimeMs : 0;
+
+    const tick = () => {
+      setOfferNowMs(Date.now() - offsetMs);
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [dashboard?.offer?.id, dashboard?.offer?.serverTime]);
 
   useEffect(() => {
     const loadTaskAnnouncement = async () => {
@@ -357,6 +412,11 @@ export default function Dashboard() {
     }
   };
 
+  const activeOffer = dashboard?.offer?.status === "active" ? dashboard.offer : null;
+  const offerEndsAtMs = activeOffer?.endsAt ? Date.parse(activeOffer.endsAt) : null;
+  const offerRemainingMs =
+    offerEndsAtMs == null || !Number.isFinite(offerEndsAtMs) ? null : offerEndsAtMs - offerNowMs;
+
   return (
       <div className="page-shell">
       <div className="container">
@@ -408,6 +468,53 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        {activeOffer ? (
+          <div className="row g-4 mb-4">
+            <div className="col-12">
+              <Card title="Offer Active" subtitle="Attend tests without using coins">
+                <div className="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                  <div>
+                    <div className="text-muted small">Offer type</div>
+                    <strong className="text-capitalize">{activeOffer.type || "offer"}</strong>
+                  </div>
+                  <div className="text-end">
+                    <div className="text-muted small">Remaining</div>
+                    <strong>{formatCountdown(offerRemainingMs)}</strong>
+                  </div>
+                </div>
+
+                <div className="mt-3 d-flex flex-wrap gap-2">
+                  {activeOffer.fixedQuestionCount != null ? (
+                    <span className="badge text-bg-light border">
+                      Questions: {activeOffer.fixedQuestionCount}
+                    </span>
+                  ) : (
+                    <span className="badge text-bg-light border">Questions: your choice</span>
+                  )}
+                  {activeOffer.fixedDifficulty ? (
+                    <span className="badge text-bg-light border">
+                      Difficulty: {activeOffer.fixedDifficulty}
+                    </span>
+                  ) : (
+                    <span className="badge text-bg-light border">Difficulty: your choice</span>
+                  )}
+                  {activeOffer.fixedExamType ? (
+                    <span className="badge text-bg-light border">
+                      Mode: {activeOffer.fixedExamType}
+                    </span>
+                  ) : (
+                    <span className="badge text-bg-light border">Mode: your choice</span>
+                  )}
+                </div>
+
+                <small className="text-muted d-block mt-3">
+                  Use "Use Offer" in Create Test to keep your coin balance unchanged until the offer ends.
+                </small>
+              </Card>
+            </div>
+          </div>
+        ) : null}
 
         <div className="row g-4 mb-4">
           <div className="col-md-3">

@@ -27,6 +27,7 @@ import AdminCertificates from "./admin/AdminCertificates";
 import AdminTopics from "./admin/AdminTopics";
 import AdminUsers from "./admin/AdminUsers";
 import AdminFeedbacks from "./admin/AdminFeedbacks";
+import AdminOffers from "./admin/AdminOffers";
 
 const useStoredUser = () => JSON.parse(localStorage.getItem("aksharaUser") || "null");
 
@@ -80,6 +81,7 @@ export default function Admin() {
     () => (feedbacks || []).filter((item) => !item.reviewed_at).length,
     [feedbacks]
   );
+  const activeOffersTotal = analytics?.offers?.activeTotal;
 
   const loadAdmin = async () => {
     try {
@@ -340,6 +342,7 @@ export default function Admin() {
           />
           <SideLink to="/admin/topics" label="Topics" pill={topics.length} />
           <SideLink to="/admin/requests" label="Requests" pill={pendingCount} />
+          <SideLink to="/admin/offers" label="Offers" pill={activeOffersTotal == null ? "â€”" : activeOffersTotal} />
           <SideLink to="/admin/certificates" label="Certificates" />
           <SideLink to="/admin/feedbacks" label="Feedbacks" pill={pendingFeedbackCount} />
         </div>
@@ -412,6 +415,7 @@ export default function Admin() {
               }
             />
             <Route path="certificates" element={<AdminCertificates />} />
+            <Route path="offers" element={<AdminOffers users={users} />} />
             <Route
               path="feedbacks"
               element={

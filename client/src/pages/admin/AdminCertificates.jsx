@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Card from "../../components/Card";
+import CustomSelect from "../../components/CustomSelect";
 import { useToast } from "../../components/ToastProvider";
 import {
   createAdminPublishedTest,
@@ -28,7 +29,7 @@ export default function AdminCertificates() {
     difficulty: "easy",
     questionCount: 10,
     totalTime: 10,
-    examType: "mcq",
+    examType: "total timer",
     subtopics: "",
     passMark: 60,
     rewardType: "certificate",
@@ -40,6 +41,51 @@ export default function AdminCertificates() {
     const unique = Array.from(new Set(base));
     return unique.length ? unique : ["Aptitude", "JavaScript", "React", "Node.js", "SQL"];
   }, [topics]);
+
+  const difficultyOptions = useMemo(
+    () => [
+      { value: "easy", label: "easy" },
+      { value: "medium", label: "medium" },
+      { value: "hard", label: "hard" }
+    ],
+    []
+  );
+
+  const rewardOptions = useMemo(
+    () => [
+      { value: "certificate", label: "Certificate" },
+      { value: "coins", label: "Coins" },
+      { value: "both", label: "Both" },
+      { value: "none", label: "None" }
+    ],
+    []
+  );
+
+  const examModes = useMemo(
+    () => [
+      {
+        value: "no return",
+        title: "No Return",
+        text: "Move forward only once, just like strict exam environments."
+      },
+      {
+        value: "return allowed",
+        title: "Return Allowed",
+        text: "Navigate freely and revisit questions before submission."
+      },
+      {
+        value: "per question timer",
+        title: "Per Question Timer",
+        text: "Use focused timing to control pace on every single question."
+      },
+      {
+        value: "total timer",
+        title: "Total Timer",
+        text: "Run the full test on one shared countdown clock."
+      }
+    ],
+    []
+  );
 
   const load = async () => {
     try {
@@ -123,127 +169,160 @@ export default function AdminCertificates() {
 
       <Card title="Publish New Test" subtitle="Create a task test and publish it to all active users.">
         <form className="d-grid gap-3" onSubmit={handleCreate}>
-          <div className="row g-3">
-            <div className="col-md-6">
-              <label className="form-label">Title</label>
-              <input
-                className="form-control create-input"
-                value={form.title}
-                onChange={(e) => setForm((c) => ({ ...c, title: e.target.value }))}
-                placeholder="Eg: Aptitude Weekly Test"
-                required
-              />
+          <div className="form-surface d-grid gap-3">
+            <div className="row g-3">
+              <div className="col-md-6">
+                <label className="form-label create-label">Title</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    value={form.title}
+                    onChange={(e) => setForm((c) => ({ ...c, title: e.target.value }))}
+                    placeholder="Eg: Aptitude Weekly Test"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="col-md-6">
+                <label className="form-label create-label">Topic</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    list="admin-topic-list"
+                    value={form.topic}
+                    onChange={(e) => setForm((c) => ({ ...c, topic: e.target.value }))}
+                    placeholder="Eg: Aptitude"
+                    required
+                  />
+                </div>
+                <datalist id="admin-topic-list">
+                  {topicOptions.map((value) => (
+                    <option key={value} value={value} />
+                  ))}
+                </datalist>
+              </div>
             </div>
-            <div className="col-md-6">
-              <label className="form-label">Topic</label>
-              <input
-                className="form-control create-input"
-                list="admin-topic-list"
-                value={form.topic}
-                onChange={(e) => setForm((c) => ({ ...c, topic: e.target.value }))}
-                placeholder="Eg: Aptitude"
-                required
-              />
-              <datalist id="admin-topic-list">
-                {topicOptions.map((value) => (
-                  <option key={value} value={value} />
+
+            <div>
+              <label className="form-label create-label">Rules / Description (shown to users)</label>
+              <div className="field-shell">
+                <textarea
+                  className="form-control create-input unblock-textarea"
+                  rows="3"
+                  value={form.description}
+                  onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))}
+                  placeholder="Eg: 10 MCQs, no negative marks, attempt once."
+                />
+              </div>
+            </div>
+
+            <div className="row g-3">
+              <div className="col-md-3">
+                <label className="form-label create-label">Difficulty</label>
+                <div className="field-shell">
+                  <CustomSelect
+                    className="create-select"
+                    value={form.difficulty}
+                    options={difficultyOptions}
+                    onChange={(e) => setForm((c) => ({ ...c, difficulty: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="col-md-3">
+                <label className="form-label create-label">Questions</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={form.questionCount}
+                    onChange={(e) => setForm((c) => ({ ...c, questionCount: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+              <div className="col-md-3">
+                <label className="form-label create-label">Time (min)</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    type="number"
+                    min="1"
+                    max="240"
+                    value={form.totalTime}
+                    onChange={(e) => setForm((c) => ({ ...c, totalTime: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+              <div className="col-md-3">
+                <label className="form-label create-label">Pass mark (%)</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={form.passMark}
+                    onChange={(e) => setForm((c) => ({ ...c, passMark: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="row g-3">
+              <div className="col-md-4">
+                <label className="form-label create-label">Reward</label>
+                <div className="field-shell">
+                  <CustomSelect
+                    className="create-select"
+                    value={form.rewardType}
+                    options={rewardOptions}
+                    onChange={(e) => setForm((c) => ({ ...c, rewardType: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="col-md-4">
+                <label className="form-label create-label">Coins (if reward includes coins)</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    value={form.rewardCoins}
+                    onChange={(e) => setForm((c) => ({ ...c, rewardCoins: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+              <div className="col-md-4">
+                <label className="form-label create-label">Subtopics (comma separated)</label>
+                <div className="field-shell">
+                  <input
+                    className="form-control create-input"
+                    value={form.subtopics}
+                    onChange={(e) => setForm((c) => ({ ...c, subtopics: e.target.value }))}
+                    placeholder="Eg: Ages, Ratio, Calendar"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label create-label">Test mode</label>
+              <div className="row g-3">
+                {examModes.map((mode) => (
+                  <div key={mode.value} className="col-md-6">
+                    <button
+                      type="button"
+                      className={`mode-choice ${form.examType === mode.value ? "active" : ""}`}
+                      onClick={() => setForm((c) => ({ ...c, examType: mode.value }))}
+                    >
+                      <div className="mode-choice-title">{mode.title}</div>
+                      <div className="mode-choice-text">{mode.text}</div>
+                    </button>
+                  </div>
                 ))}
-              </datalist>
-            </div>
-          </div>
-
-          <div>
-            <label className="form-label">Rules / Description (shown to users)</label>
-            <textarea
-              className="form-control create-input unblock-textarea"
-              rows="3"
-              value={form.description}
-              onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))}
-              placeholder="Eg: 10 MCQs, no negative marks, attempt once."
-            />
-          </div>
-
-          <div className="row g-3">
-            <div className="col-md-3">
-              <label className="form-label">Difficulty</label>
-              <select
-                className="form-select create-input"
-                value={form.difficulty}
-                onChange={(e) => setForm((c) => ({ ...c, difficulty: e.target.value }))}
-              >
-                <option value="easy">easy</option>
-                <option value="medium">medium</option>
-                <option value="hard">hard</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Questions</label>
-              <input
-                className="form-control create-input"
-                type="number"
-                min="1"
-                max="50"
-                value={form.questionCount}
-                onChange={(e) => setForm((c) => ({ ...c, questionCount: Number(e.target.value) }))}
-              />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Time (min)</label>
-              <input
-                className="form-control create-input"
-                type="number"
-                min="1"
-                max="240"
-                value={form.totalTime}
-                onChange={(e) => setForm((c) => ({ ...c, totalTime: Number(e.target.value) }))}
-              />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Pass mark (%)</label>
-              <input
-                className="form-control create-input"
-                type="number"
-                min="0"
-                max="100"
-                value={form.passMark}
-                onChange={(e) => setForm((c) => ({ ...c, passMark: Number(e.target.value) }))}
-              />
-            </div>
-          </div>
-
-          <div className="row g-3">
-            <div className="col-md-4">
-              <label className="form-label">Reward</label>
-              <select
-                className="form-select create-input"
-                value={form.rewardType}
-                onChange={(e) => setForm((c) => ({ ...c, rewardType: e.target.value }))}
-              >
-                <option value="certificate">Certificate</option>
-                <option value="coins">Coins</option>
-                <option value="both">Both</option>
-                <option value="none">None</option>
-              </select>
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">Coins (if reward includes coins)</label>
-              <input
-                className="form-control create-input"
-                type="number"
-                min="0"
-                max="100000"
-                value={form.rewardCoins}
-                onChange={(e) => setForm((c) => ({ ...c, rewardCoins: Number(e.target.value) }))}
-              />
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">Subtopics (comma separated)</label>
-              <input
-                className="form-control create-input"
-                value={form.subtopics}
-                onChange={(e) => setForm((c) => ({ ...c, subtopics: e.target.value }))}
-                placeholder="Eg: Ages, Ratio, Calendar"
-              />
+              </div>
             </div>
           </div>
 
