@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { askAssistant, getCurrentUser, getDashboard, submitFeedback, updateCurrentUser } from "../api";
+import { askAssistant, getCurrentUser, getDashboard, getTasks, submitFeedback, updateCurrentUser } from "../api";
 import Card from "../components/Card";
 import CustomSelect from "../components/CustomSelect";
 import aksharaLogo from "../assets/akshara.png";
+import { useToast } from "../components/ToastProvider";
 
 const scoreTone = (score) => {
   if (score >= 80) {
@@ -39,6 +40,8 @@ const contributionTone = (count, maxCount) => {
 
 export default function Dashboard() {
   const storedUser = JSON.parse(localStorage.getItem("aksharaUser") || "null");
+  const toast = useToast();
+  const lastAnnouncementRef = useRef("");
   const [currentUser, setCurrentUser] = useState(storedUser);
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -56,8 +59,37 @@ export default function Dashboard() {
   const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [taskAnnouncement, setTaskAnnouncement] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+    setError("");
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (!feedbackMessage) {
+      return;
+    }
+    toast.success(feedbackMessage);
+    setFeedbackMessage("");
+  }, [feedbackMessage, toast]);
+
+  useEffect(() => {
+    if (!taskAnnouncement?.title) {
+      return;
+    }
+    const signature = String(taskAnnouncement.title);
+    if (lastAnnouncementRef.current === signature) {
+      return;
+    }
+    lastAnnouncementRef.current = signature;
+    toast.info(`New test available — ${taskAnnouncement.title}`, { title: "Announcement", duration: 6500 });
+  }, [taskAnnouncement, toast]);
   const feedbackOptions = [
     { value: "feedback", label: "Feedback" },
     { value: "query", label: "Query" },
@@ -149,6 +181,25 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("focus", handleFocus);
     };
+  }, [storedUser?.id]);
+
+  useEffect(() => {
+    const loadTaskAnnouncement = async () => {
+      if (!storedUser?.id) {
+        setTaskAnnouncement(null);
+        return;
+      }
+
+      try {
+        const { data } = await getTasks();
+        const next = (data?.tasks || []).find((task) => !task?.completion) || null;
+        setTaskAnnouncement(next);
+      } catch {
+        setTaskAnnouncement(null);
+      }
+    };
+
+    loadTaskAnnouncement();
   }, [storedUser?.id]);
 
   useEffect(() => {
@@ -307,7 +358,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="page-shell">
+      <div className="page-shell">
       <div className="container">
         <div className="dashboard-hero ak-card mb-4">
           <div className="row g-4 align-items-center">
@@ -357,8 +408,6 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-
-        {error ? <div className="alert alert-danger">{error}</div> : null}
 
         <div className="row g-4 mb-4">
           <div className="col-md-3">
@@ -712,7 +761,6 @@ export default function Dashboard() {
                     {feedbackLoading ? "Sending..." : "Send Feedback"}
                   </button>
                 </form>
-                {feedbackMessage ? <div className="alert alert-success mt-3 mb-0">{feedbackMessage}</div> : null}
               </Card>
 
               <Card title="Learning Support" subtitle="Send feedback while the chat assistant stays ready">

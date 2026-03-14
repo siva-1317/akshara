@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { useNavigate } from "react-router-dom";
 import { loginWithGoogle, loginWithPassword } from "../api";
+import { useToast } from "../components/ToastProvider";
 
 export default function Login() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -12,6 +14,14 @@ export default function Login() {
     password: ""
   });
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+    setError("");
+  }, [error, toast]);
 
   const persistUser = (user) => {
     localStorage.setItem("aksharaUser", JSON.stringify(user));
@@ -29,7 +39,14 @@ export default function Login() {
       const { data } = await loginWithGoogle(credentialResponse.credential);
       persistUser(data.user);
     } catch (err) {
-      setError(err.response?.data?.message || "Google login failed.");
+      const serverMessage = err.response?.data?.message;
+      if (serverMessage) {
+        setError(serverMessage);
+      } else if (String(err.message || "").toLowerCase().includes("network")) {
+        setError("Cannot reach the server. Check VITE_API_URL and make sure the API is running.");
+      } else {
+        setError("Google login failed.");
+      }
     } finally {
       setLoading(false);
     }
@@ -50,7 +67,14 @@ export default function Login() {
       const { data } = await loginWithPassword(form);
       persistUser(data.user);
     } catch (err) {
-      setError(err.response?.data?.message || "Login failed.");
+      const serverMessage = err.response?.data?.message;
+      if (serverMessage) {
+        setError(serverMessage);
+      } else if (String(err.message || "").toLowerCase().includes("network")) {
+        setError("Cannot reach the server. Check VITE_API_URL and make sure the API is running.");
+      } else {
+        setError("Login failed.");
+      }
     } finally {
       setLoading(false);
     }
@@ -110,10 +134,10 @@ export default function Login() {
                       Continue with Google to access your learner dashboard, tests, and history.
                     </p>
                     {!googleClientId ? (
-                      <div className="alert alert-warning text-start mb-0">
-                        Add `VITE_GOOGLE_CLIENT_ID` to your client `.env` file before using
-                        Google login.
-                      </div>
+                      <p className="text-muted small text-start mb-0">
+                        Add <strong>VITE_GOOGLE_CLIENT_ID</strong> to your client <strong>.env</strong> file before
+                        using Google login.
+                      </p>
                     ) : (
                       <>
                         <div className="d-flex justify-content-center mb-3">
@@ -130,7 +154,6 @@ export default function Login() {
                 </div>
               </div>
 
-              {error ? <div className="alert alert-danger mt-3 mb-0">{error}</div> : null}
             </div>
           </div>
         </div>

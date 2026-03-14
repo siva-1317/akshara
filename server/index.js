@@ -1,10 +1,12 @@
-import "dotenv/config";
+import "./config/env.js";
 import express from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth.js";
 import testRoutes from "./routes/test.js";
 import geminiRoutes from "./routes/gemini.js";
 import userRoutes from "./routes/user.js";
+import taskRoutes from "./routes/tasks.js";
+import certificateRoutes from "./routes/certificates.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -25,6 +27,8 @@ app.use("/", authRoutes);
 app.use("/", geminiRoutes);
 app.use("/", testRoutes);
 app.use("/", userRoutes);
+app.use("/", taskRoutes);
+app.use("/", certificateRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

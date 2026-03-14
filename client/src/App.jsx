@@ -13,6 +13,8 @@ import History from "./pages/History";
 import Review from "./pages/Review";
 import Admin from "./pages/Admin";
 import Blocked from "./pages/Blocked";
+import Tasks from "./pages/Tasks";
+import { ToastProvider } from "./components/ToastProvider";
 
 const getStoredUser = () => JSON.parse(localStorage.getItem("aksharaUser") || "null");
 
@@ -99,68 +101,78 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppLayout theme={theme} onToggleTheme={toggleTheme} />
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/blocked" element={<Blocked />} />
-        <Route
-          path="/dashboard"
-          element={
-            <UserRoute>
-              <Dashboard />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/create-test"
-          element={
-            <UserRoute>
-              <CreateTest />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/test/:testId"
-          element={
-            <UserRoute>
-              <TestPage />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/result/:testId"
-          element={
-            <UserRoute>
-              <Result />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/history"
-          element={
-            <UserRoute>
-              <History />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/review/:testId"
-          element={
-            <UserRoute>
-              <Review />
-            </UserRoute>
-          }
-        />
-        <Route
-          path="/admin/*"
-          element={
-            <AdminRoute>
-              <Admin />
-            </AdminRoute>
-          }
-        />
-      </Routes>
+      <ToastProvider>
+        <AppLayout theme={theme} onToggleTheme={toggleTheme} />
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/blocked" element={<Blocked />} />
+          <Route
+            path="/dashboard"
+            element={
+              <UserRoute>
+                <Dashboard />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/create-test"
+            element={
+              <UserRoute>
+                <CreateTest />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/test/:testId"
+            element={
+              <UserRoute>
+                <TestPage />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/result/:testId"
+            element={
+              <UserRoute>
+                <Result />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <UserRoute>
+                <History />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <UserRoute>
+                <Tasks />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/review/:testId"
+            element={
+              <UserRoute>
+                <Review />
+              </UserRoute>
+            }
+          />
+          <Route
+            path="/admin/*"
+            element={
+              <AdminRoute>
+                <Admin />
+              </AdminRoute>
+            }
+          />
+        </Routes>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

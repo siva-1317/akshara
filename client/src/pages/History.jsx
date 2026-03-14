@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getHistory } from "../api";
+import { useToast } from "../components/ToastProvider";
 
 export default function History() {
   const user = JSON.parse(localStorage.getItem("aksharaUser") || "null");
+  const toast = useToast();
   const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+    setError("");
+  }, [error, toast]);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -40,7 +50,6 @@ export default function History() {
             </Link>
           </div>
 
-          {error ? <div className="alert alert-danger">{error}</div> : null}
           {loading ? <p className="mb-0">Loading history...</p> : null}
 
           {!loading ? (

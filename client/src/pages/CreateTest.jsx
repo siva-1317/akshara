@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createTest, generateQuestions, getTopics, suggestSubtopics } from "../api";
 import CustomSelect from "../components/CustomSelect";
+import { useToast } from "../components/ToastProvider";
 
 const defaultForm = {
   topic: "JavaScript",
@@ -42,6 +43,7 @@ const examModes = [
 ];
 
 export default function CreateTest() {
+  const toast = useToast();
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("aksharaUser") || "null");
   const coins = Number.isFinite(user?.coins) ? user.coins : 0;
@@ -52,6 +54,14 @@ export default function CreateTest() {
   const [suggestedSubtopics, setSuggestedSubtopics] = useState([]);
   const [selectedSubtopics, setSelectedSubtopics] = useState([]);
   const [customSubtopic, setCustomSubtopic] = useState("");
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+    setError("");
+  }, [error, toast]);
   const [subtopicsLoading, setSubtopicsLoading] = useState(false);
   const [subtopicsError, setSubtopicsError] = useState("");
   const topicOptions = [...topics.map((topic) => ({ value: topic, label: topic })), {
@@ -449,7 +459,6 @@ export default function CreateTest() {
             </div>
           </form>
 
-          {error ? <div className="alert alert-danger mt-4 mb-0">{error}</div> : null}
         </div>
       </div>
     </div>

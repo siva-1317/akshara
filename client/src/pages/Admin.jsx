@@ -1,26 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useToast } from "../components/ToastProvider";
 import {
   addTopic,
   approveAdminCoinRequest,
   blockAdminUser,
-  deleteAdminTest,
+  clearAdminFeedback,
+  clearAdminFeedbacks,
   getAdminCoinRequests,
-  getAdminTests,
+  getAdminFeedbacks,
+  getAdminAnalytics,
   getAdminUserPerformance,
   getAdminUsers,
   getNotifications,
   getTopics,
   getUnblockRequests,
   grantAdminUserCoins,
+  markAdminFeedbackReviewed,
   rejectAdminUnblockRequest,
   rejectAdminCoinRequest,
   unblockAdminUser
 } from "../api";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminRequests from "./admin/AdminRequests";
+import AdminCertificates from "./admin/AdminCertificates";
 import AdminTopics from "./admin/AdminTopics";
 import AdminUsers from "./admin/AdminUsers";
+import AdminFeedbacks from "./admin/AdminFeedbacks";
 
 const useStoredUser = () => JSON.parse(localStorage.getItem("aksharaUser") || "null");
 
@@ -38,13 +44,15 @@ const SideLink = ({ to, label, pill = null }) => {
 export default function Admin() {
   const storedUser = useStoredUser();
   const location = useLocation();
+  const toast = useToast();
 
   const [users, setUsers] = useState([]);
-  const [tests, setTests] = useState([]);
   const [topics, setTopics] = useState([]);
   const [requests, setRequests] = useState([]);
   const [coinRequests, setCoinRequests] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedPerformance, setSelectedPerformance] = useState(null);
   const [topicName, setTopicName] = useState("");
@@ -68,33 +76,40 @@ export default function Admin() {
   );
 
   const blockedCount = useMemo(() => users.filter((user) => user.is_blocked).length, [users]);
+  const pendingFeedbackCount = useMemo(
+    () => (feedbacks || []).filter((item) => !item.reviewed_at).length,
+    [feedbacks]
+  );
 
   const loadAdmin = async () => {
     try {
       setLoading(true);
       const [
         usersResponse,
-        testsResponse,
         topicsResponse,
         requestsResponse,
         coinRequestsResponse,
-        notificationsResponse
+        notificationsResponse,
+        feedbacksResponse,
+        analyticsResponse
       ] = await Promise.all([
         getAdminUsers(),
-        getAdminTests(),
         getTopics(),
         getUnblockRequests(),
         getAdminCoinRequests(),
-        getNotifications()
+        getNotifications(),
+        getAdminFeedbacks(),
+        getAdminAnalytics()
       ]);
 
       const usersData = usersResponse.data.users || [];
       setUsers(usersData);
-      setTests(testsResponse.data.tests || []);
       setTopics(topicsResponse.data.topics || []);
       setRequests(requestsResponse.data.requests || []);
       setCoinRequests(coinRequestsResponse.data.requests || []);
       setNotifications(notificationsResponse.data.notifications || []);
+      setFeedbacks(feedbacksResponse.data.feedbacks || []);
+      setAnalytics(analyticsResponse.data || null);
 
       const nextUserId =
         selectedUserId || usersData.find((user) => user.role !== "admin")?.id || usersData[0]?.id || "";
@@ -106,10 +121,23 @@ export default function Admin() {
     }
   };
 
+  const loadFeedbacks = async () => {
+    const { data } = await getAdminFeedbacks();
+    setFeedbacks(data.feedbacks || []);
+  };
+
   useEffect(() => {
     loadAdmin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+    setError("");
+  }, [error, toast]);
 
   useEffect(() => {
     const loadSelectedPerformance = async () => {
@@ -129,13 +157,43 @@ export default function Admin() {
     loadSelectedPerformance();
   }, [selectedUserId]);
 
-  const handleDeleteTest = async (testId) => {
+  const handleMarkFeedbackReviewed = async (feedbackId) => {
     try {
       setActionLoading(true);
-      await deleteAdminTest(testId);
-      await loadAdmin();
+      setError("");
+      await markAdminFeedbackReviewed(feedbackId);
+      await loadFeedbacks();
+      toast.success("Feedback marked as reviewed.");
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to delete test.");
+      setError(err.response?.data?.message || "Unable to update feedback.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleClearFeedback = async (feedbackId) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      await clearAdminFeedback(feedbackId);
+      await loadFeedbacks();
+      toast.success("Feedback cleared.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to clear feedback.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleClearReviewedFeedbacks = async (reviewedBeforeDays) => {
+    try {
+      setActionLoading(true);
+      setError("");
+      await clearAdminFeedbacks({ reviewedBeforeDays });
+      await loadFeedbacks();
+      toast.success("Reviewed feedback cleared.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to clear feedbacks.");
     } finally {
       setActionLoading(false);
     }
@@ -152,6 +210,7 @@ export default function Admin() {
       await addTopic({ name: topicName.trim() });
       setTopicName("");
       await loadAdmin();
+      toast.success("Topic added successfully.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to add topic.");
     } finally {
@@ -172,6 +231,7 @@ export default function Admin() {
       await blockAdminUser(userId, { reason: blockReason });
       setBlockReason("");
       await loadAdmin();
+      toast.warning("User blocked.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to block user.");
     } finally {
@@ -189,6 +249,7 @@ export default function Admin() {
       });
       setNote("");
       await loadAdmin();
+      toast.success("User unblocked.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to unblock user.");
     } finally {
@@ -208,6 +269,7 @@ export default function Admin() {
       setError("");
       await grantAdminUserCoins(userId, { coins: amount });
       await loadAdmin();
+      toast.success("Coins granted successfully.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to grant coins.");
     } finally {
@@ -221,6 +283,7 @@ export default function Admin() {
       setError("");
       await approveAdminCoinRequest(requestId, { note: coinNote });
       await loadAdmin();
+      toast.success("Coins request approved.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to approve coins request.");
     } finally {
@@ -234,6 +297,7 @@ export default function Admin() {
       setError("");
       await rejectAdminCoinRequest(requestId, { note: coinNote });
       await loadAdmin();
+      toast.warning("Coins request rejected.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to reject coins request.");
     } finally {
@@ -247,6 +311,7 @@ export default function Admin() {
       setError("");
       await rejectAdminUnblockRequest(requestId, { note: unblockNote });
       await loadAdmin();
+      toast.warning("Unblock request rejected.");
     } catch (err) {
       setError(err.response?.data?.message || "Unable to reject unblock request.");
     } finally {
@@ -275,26 +340,24 @@ export default function Admin() {
           />
           <SideLink to="/admin/topics" label="Topics" pill={topics.length} />
           <SideLink to="/admin/requests" label="Requests" pill={pendingCount} />
+          <SideLink to="/admin/certificates" label="Certificates" />
+          <SideLink to="/admin/feedbacks" label="Feedbacks" pill={pendingFeedbackCount} />
         </div>
       </aside>
 
       <div className="admin-main">
         <div className="container">
           {loading || actionLoading ? <div className="loading-pill mb-3">Updating...</div> : null}
-          {error ? <div className="alert alert-danger">{error}</div> : null}
 
           <Routes>
             <Route
               path="dashboard"
               element={
                 <AdminDashboard
-                  users={users}
-                  tests={tests}
-                  topics={topics}
+                  analytics={analytics}
                   requests={requests}
                   coinRequests={coinRequests}
                   notifications={notifications}
-                  onDeleteTest={handleDeleteTest}
                 />
               }
             />
@@ -344,6 +407,19 @@ export default function Admin() {
                   onRejectUnblock={handleRejectUnblock}
                   onApproveCoins={handleApproveCoins}
                   onRejectCoins={handleRejectCoins}
+                  actionLoading={actionLoading}
+                />
+              }
+            />
+            <Route path="certificates" element={<AdminCertificates />} />
+            <Route
+              path="feedbacks"
+              element={
+                <AdminFeedbacks
+                  feedbacks={feedbacks}
+                  onMarkReviewed={handleMarkFeedbackReviewed}
+                  onClear={handleClearFeedback}
+                  onClearReviewedOlderThan={handleClearReviewedFeedbacks}
                   actionLoading={actionLoading}
                 />
               }

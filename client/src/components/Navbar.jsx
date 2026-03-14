@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import aksharaLogo from "../assets/akshara.png";
+import { useToast } from "./ToastProvider";
 import {
   clearNotifications,
   getNotifications,
@@ -108,16 +110,18 @@ export default function AppNavbar({ theme, onToggleTheme }) {
   const location = useLocation();
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("aksharaUser") || "null");
+  const toast = useToast();
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCoins, setShowCoins] = useState(false);
   const [showCoinRequest, setShowCoinRequest] = useState(false);
   const [coinForm, setCoinForm] = useState({ requestedCoins: 50, reason: "" });
   const [coinLoading, setCoinLoading] = useState(false);
-  const [coinMessage, setCoinMessage] = useState("");
-  const [coinError, setCoinError] = useState("");
+  const [coinRequestTop, setCoinRequestTop] = useState(96);
   const panelRef = useRef(null);
   const coinPanelRef = useRef(null);
+  const coinRequestRef = useRef(null);
+  const navRef = useRef(null);
 
   const unreadCount = useMemo(
     () => notifications.filter((item) => !item.is_read).length,
@@ -200,14 +204,40 @@ export default function AppNavbar({ theme, onToggleTheme }) {
       return undefined;
     }
 
+    const updateTop = () => {
+      const rect = navRef.current?.getBoundingClientRect();
+      if (!rect) {
+        setCoinRequestTop(96);
+        return;
+      }
+
+      setCoinRequestTop(Math.max(12, rect.bottom + 12));
+    };
+
     const handleEscape = (event) => {
       if (event.key === "Escape") {
         setShowCoinRequest(false);
       }
     };
 
+    const handlePointerDown = (event) => {
+      if (!coinRequestRef.current?.contains(event.target)) {
+        setShowCoinRequest(false);
+      }
+    };
+
+    updateTop();
+    window.addEventListener("resize", updateTop);
+    window.addEventListener("scroll", updateTop, true);
+    document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("resize", updateTop);
+      window.removeEventListener("scroll", updateTop, true);
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, [showCoinRequest]);
 
   const handleLogout = () => {
@@ -223,18 +253,16 @@ export default function AppNavbar({ theme, onToggleTheme }) {
 
     try {
       setCoinLoading(true);
-      setCoinError("");
-      setCoinMessage("");
       await requestCoins({
         userId: user.id,
         requestedCoins: Number(coinForm.requestedCoins),
         reason: coinForm.reason
       });
-      setCoinMessage("Coins request sent to admin.");
+      toast.success("Coins request sent to admin.");
       setShowCoinRequest(false);
       setCoinForm({ requestedCoins: 50, reason: "" });
     } catch (error) {
-      setCoinError(error.response?.data?.message || "Unable to submit coins request.");
+      toast.error(error.response?.data?.message || "Unable to submit coins request.");
     } finally {
       setCoinLoading(false);
     }
@@ -273,78 +301,153 @@ export default function AppNavbar({ theme, onToggleTheme }) {
   };
 
   return (
-    <nav className="navbar navbar-expand-lg navbar-dark navbar-ak sticky-top">
-      <div className="container">
-        <Link
-          className="navbar-brand d-flex align-items-center gap-2 fw-bold"
-          to={user?.isBlocked ? "/blocked" : user ? "/dashboard" : "/"}
-        >
-          <img src={aksharaLogo} alt="AKSHARA logo" className="brand-logo-image" />
-          <div className="d-flex flex-column lh-sm">
-            <span className="brand-title">AKSHARA</span>
-            <small className="brand-tagline">AI Powered Test & Learning Portal</small>
-          </div>
-        </Link>
-        <button
-          className="navbar-toggler"
-          type="button"
-          data-bs-toggle="collapse"
-          data-bs-target="#mainNavbar"
-        >
-          <span className="navbar-toggler-icon" />
-        </button>
+    <>
+      {showCoinRequest
+        ? createPortal(
+            <>
+              <button
+                type="button"
+                className="coin-request-backdrop"
+                aria-label="Close coin request"
+                onClick={() => setShowCoinRequest(false)}
+              />
+              <div
+                className="coin-request-popover"
+                style={{ top: `${coinRequestTop}px` }}
+                role="dialog"
+                aria-label="Request coins"
+              >
+                <div ref={coinRequestRef} className="ak-card coin-request-card">
+                  <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                      <h5 className="fw-bold mb-1">Request Coins</h5>
+                      <p className="text-muted mb-0">Tell admin how many coins you need and why.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-outline-ak btn-sm"
+                      onClick={() => setShowCoinRequest(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
 
-        <div className="collapse navbar-collapse" id="mainNavbar">
-          <div className="navbar-nav ms-auto align-items-lg-center gap-lg-2 position-relative">
-            {user ? (
-              user.isBlocked ? (
-                <>
-                  <Link className="nav-link" to="/blocked">
-                    Blocked Status
-                  </Link>
-                  <button
-                    className="theme-toggle-btn ms-lg-2"
-                    type="button"
-                    onClick={onToggleTheme}
-                    aria-label="Toggle theme"
-                    title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-                  >
-                    {theme === "light" ? <MoonIcon /> : <SunIcon />}
-                  </button>
-                  <button className="btn btn-ak-nav btn-sm ms-lg-2" onClick={handleLogout}>
-                    Logout
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link className="nav-link" to="/dashboard">
-                    Dashboard
-                  </Link>
-                  <Link className="nav-link" to="/create-test">
-                    Create Test
-                  </Link>
-                  <Link className="nav-link" to="/history">
-                    History
-                  </Link>
-                  {user.role === "admin" ? (
-                    <Link className="nav-link" to="/admin">
-                      Admin
+                  <form onSubmit={handleSubmitCoinRequest} className="d-grid gap-3">
+                    <div>
+                      <label className="form-label">Coins</label>
+                      <div className="field-shell">
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          className="form-control create-input"
+                          value={coinForm.requestedCoins}
+                          onChange={(event) =>
+                            setCoinForm((current) => ({
+                              ...current,
+                              requestedCoins: event.target.value
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label">Reason (optional)</label>
+                      <div className="field-shell">
+                        <textarea
+                          className="form-control create-input"
+                          rows="3"
+                          value={coinForm.reason}
+                          onChange={(event) =>
+                            setCoinForm((current) => ({ ...current, reason: event.target.value }))
+                          }
+                          placeholder="Why do you need coins?"
+                        />
+                      </div>
+                    </div>
+                    <button className="btn btn-ak-primary" disabled={coinLoading}>
+                      {coinLoading ? "Submitting..." : "Submit Request"}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </>,
+            document.body
+          )
+        : null}
+      <nav ref={navRef} className="navbar navbar-expand-lg navbar-dark navbar-ak sticky-top">
+        <div className="container">
+          <Link
+            className="navbar-brand d-flex align-items-center gap-2 fw-bold"
+            to={user?.isBlocked ? "/blocked" : user ? "/dashboard" : "/"}
+          >
+            <img src={aksharaLogo} alt="AKSHARA logo" className="brand-logo-image" />
+            <div className="d-flex flex-column lh-sm">
+              <span className="brand-title">AKSHARA</span>
+              <small className="brand-tagline">AI Powered Test & Learning Portal</small>
+            </div>
+          </Link>
+          <button
+            className="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#mainNavbar"
+          >
+            <span className="navbar-toggler-icon" />
+          </button>
+
+          <div className="collapse navbar-collapse" id="mainNavbar">
+            <div className="navbar-nav ms-auto align-items-lg-center gap-lg-2 position-relative">
+              {user ? (
+                user.isBlocked ? (
+                  <>
+                    <Link className="nav-link" to="/blocked">
+                      Blocked Status
                     </Link>
-                  ) : null}
-                  <button
-                    className="notification-btn ms-lg-2"
-                    type="button"
-                    onClick={() => {
-                      setShowCoins((current) => !current);
-                      setCoinMessage("");
-                      setCoinError("");
-                    }}
-                    aria-label="Coins"
-                    title="Coins"
-                  >
-                    <CoinIcon />
-                    <span className="coin-count">{Number.isFinite(user?.coins) ? user.coins : 0}</span>
-                  </button>
+                    <button
+                      className="theme-toggle-btn ms-lg-2"
+                      type="button"
+                      onClick={onToggleTheme}
+                      aria-label="Toggle theme"
+                      title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+                    >
+                      {theme === "light" ? <MoonIcon /> : <SunIcon />}
+                    </button>
+                    <button className="btn btn-ak-nav btn-sm ms-lg-2" onClick={handleLogout}>
+                      Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Link className="nav-link" to="/dashboard">
+                      Dashboard
+                    </Link>
+                    <Link className="nav-link" to="/create-test">
+                      Create Test
+                    </Link>
+                    <Link className="nav-link" to="/tasks">
+                      Tasks
+                    </Link>
+                    <Link className="nav-link" to="/history">
+                      History
+                    </Link>
+                    {user.role === "admin" ? (
+                      <Link className="nav-link" to="/admin">
+                        Admin
+                      </Link>
+                    ) : null}
+                    <button
+                      className="notification-btn ms-lg-2"
+                      type="button"
+                      onClick={() => {
+                        setShowCoins((current) => !current);
+                      }}
+                      aria-label="Coins"
+                      title="Coins"
+                    >
+                      <CoinIcon />
+                      <span className="coin-count">{Number.isFinite(user?.coins) ? user.coins : 0}</span>
+                    </button>
                   {showCoins ? (
                     <>
                       <button
@@ -364,8 +467,6 @@ export default function AppNavbar({ theme, onToggleTheme }) {
                           <span>Remaining</span>
                           <strong>{Number.isFinite(user?.coins) ? user.coins : 0}</strong>
                         </div>
-                        {coinMessage ? <div className="alert alert-success py-2 mb-2">{coinMessage}</div> : null}
-                        {coinError ? <div className="alert alert-danger py-2 mb-2">{coinError}</div> : null}
                         <button
                           type="button"
                           className="btn btn-ak-primary w-100"
@@ -380,73 +481,6 @@ export default function AppNavbar({ theme, onToggleTheme }) {
                     </>
                   ) : null}
 
-                  {showCoinRequest ? (
-                    <>
-                      <button
-                        type="button"
-                        className="modal-backdrop-ak"
-                        aria-label="Close coin request"
-                        onClick={() => setShowCoinRequest(false)}
-                      />
-                      <div className="modal-card-ak" role="dialog" aria-modal="true">
-                        <div className="ak-card">
-                          <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
-                            <div>
-                              <h5 className="fw-bold mb-1">Request Coins</h5>
-                              <p className="text-muted mb-0">
-                                Tell admin how many coins you need and why.
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              className="btn btn-outline-ak btn-sm"
-                              onClick={() => setShowCoinRequest(false)}
-                            >
-                              Close
-                            </button>
-                          </div>
-
-                          <form onSubmit={handleSubmitCoinRequest} className="d-grid gap-3">
-                            <div>
-                              <label className="form-label">Coins</label>
-                              <div className="field-shell">
-                                <input
-                                  type="number"
-                                  min="1"
-                                  required
-                                  className="form-control create-input"
-                                  value={coinForm.requestedCoins}
-                                  onChange={(event) =>
-                                    setCoinForm((current) => ({
-                                      ...current,
-                                      requestedCoins: event.target.value
-                                    }))
-                                  }
-                                />
-                              </div>
-                            </div>
-                            <div>
-                              <label className="form-label">Reason (optional)</label>
-                              <div className="field-shell">
-                                <textarea
-                                  className="form-control create-input unblock-textarea"
-                                  rows="3"
-                                  value={coinForm.reason}
-                                  onChange={(event) =>
-                                    setCoinForm((current) => ({ ...current, reason: event.target.value }))
-                                  }
-                                  placeholder="Why do you need coins?"
-                                />
-                              </div>
-                            </div>
-                            <button className="btn btn-ak-primary" disabled={coinLoading}>
-                              {coinLoading ? "Submitting..." : "Submit Request"}
-                            </button>
-                          </form>
-                        </div>
-                      </div>
-                    </>
-                  ) : null}
                   <button
                     className="notification-btn ms-lg-2"
                     type="button"
@@ -560,6 +594,7 @@ export default function AppNavbar({ theme, onToggleTheme }) {
           </div>
         </div>
       </div>
-    </nav>
+      </nav>
+    </>
   );
 }

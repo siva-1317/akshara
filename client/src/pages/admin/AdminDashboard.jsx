@@ -1,99 +1,319 @@
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import Card from "../../components/Card";
+import DonutChart from "../../components/charts/DonutChart";
+import RadialProgress from "../../components/charts/RadialProgress";
+import TimeSeriesChart from "../../components/charts/TimeSeriesChart";
 
-export default function AdminDashboard({
-  users,
-  tests,
-  requests,
-  coinRequests,
-  notifications,
-  onDeleteTest
-}) {
+const numberOrZero = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+const prettyKey = (key) => {
+  const cleaned = String(key || "").trim();
+  if (!cleaned) {
+    return "Unknown";
+  }
+  return cleaned
+    .split(/[\s_-]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+export default function AdminDashboard({ analytics, requests, coinRequests, notifications }) {
+  const [creationView, setCreationView] = useState("monthly");
+
   const pendingCount =
     (requests || []).filter((item) => item.status === "pending").length +
     (coinRequests || []).filter((item) => item.status === "pending").length;
+
+  const usersTotal = numberOrZero(analytics?.users?.total);
+  const usersBlocked = numberOrZero(analytics?.users?.blocked);
+  const professionCounts = analytics?.users?.byProfession || {};
+  const roleCounts = analytics?.users?.byRole || {};
+
+  const studentsCount = numberOrZero(professionCounts.student || professionCounts.students);
+  const employeesCount = numberOrZero(
+    professionCounts.employee || professionCounts.employees || professionCounts.staff
+  );
+
+  const testsTotal = analytics?.tests?.total;
+  const testsByDifficulty = analytics?.tests?.byDifficulty || null;
+
+  const difficultySegments = useMemo(() => {
+    if (!testsByDifficulty) {
+      return [];
+    }
+
+    const segments = [
+      { key: "easy", label: "Easy", color: "var(--ak-chart-green)" },
+      { key: "medium", label: "Medium", color: "var(--ak-chart-amber)" },
+      { key: "hard", label: "Hard", color: "var(--ak-chart-red)" },
+      { key: "other", label: "Other", color: "var(--ak-chart-slate)" }
+    ]
+      .map((segment) => ({
+        ...segment,
+        value: numberOrZero(testsByDifficulty?.[segment.key])
+      }))
+      .filter((segment) => segment.value > 0);
+
+    return segments;
+  }, [testsByDifficulty]);
+
+  const difficultyLegend = useMemo(
+    () =>
+      difficultySegments.map((segment) => ({
+        ...segment,
+        pct: testsTotal ? Math.round((segment.value / numberOrZero(testsTotal)) * 100) : 0
+      })),
+    [difficultySegments, testsTotal]
+  );
+
+  const creationSeries = analytics?.users?.createdSeries?.[creationView] || [];
+
+  const professionRows = useMemo(() => {
+    const entries = Object.entries(professionCounts || {})
+      .map(([key, value]) => ({ key, label: prettyKey(key), value: numberOrZero(value) }))
+      .filter((row) => row.value > 0)
+      .sort((a, b) => b.value - a.value);
+    return entries.slice(0, 8);
+  }, [professionCounts]);
+
+  const roleRows = useMemo(() => {
+    const entries = Object.entries(roleCounts || {})
+      .map(([key, value]) => ({ key, label: prettyKey(key), value: numberOrZero(value) }))
+      .filter((row) => row.value > 0)
+      .sort((a, b) => b.value - a.value);
+    return entries;
+  }, [roleCounts]);
+
+  const accuracyPercent = analytics?.answers?.accuracyPercent;
+  const passRatePercent = analytics?.tests?.passRatePercent;
 
   return (
     <>
       <div className="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
         <div>
           <h2 className="section-title mb-1">Admin Dashboard</h2>
-          <p className="text-muted mb-0">
-            Monitor users, review requests, moderate accounts, and track platform activity.
-          </p>
+          <p className="text-muted mb-0">Analytics overview with totals, graphs, and breakdown tables.</p>
         </div>
       </div>
 
       <div className="row g-4 mb-4">
-        <div className="col-lg-3">
-          <Card title="Users">
-            <div className="metric-value">{(users || []).length}</div>
-            <p className="text-muted mb-0">Registered accounts</p>
+        <div className="col-lg-3 col-sm-6">
+          <Card title="Total Users">
+            <div className="metric-value">{usersTotal}</div>
+            <p className="text-muted mb-0">All registered accounts</p>
           </Card>
         </div>
-        <div className="col-lg-3">
-          <Card title="Overall Tests">
-            <div className="metric-value">{(tests || []).length}</div>
-            <p className="text-muted mb-0">Attempts across all users</p>
+        <div className="col-lg-3 col-sm-6">
+          <Card title="Students">
+            <div className="metric-value">{studentsCount}</div>
+            <p className="text-muted mb-0">Profession = student</p>
           </Card>
         </div>
-        <div className="col-lg-3">
+        <div className="col-lg-3 col-sm-6">
+          <Card title="Employees">
+            <div className="metric-value">{employeesCount}</div>
+            <p className="text-muted mb-0">Profession = employee</p>
+          </Card>
+        </div>
+        <div className="col-lg-3 col-sm-6">
           <Card title="Pending Requests">
             <div className="metric-value">{pendingCount}</div>
-            <p className="text-muted mb-0">Waiting for admin review</p>
+            <p className="text-muted mb-0">Awaiting admin review</p>
           </Card>
         </div>
-        <div className="col-lg-3">
-          <Card title="Notifications">
-            <div className="metric-value">{(notifications || []).length}</div>
-            <p className="text-muted mb-0">Latest activity alerts</p>
+      </div>
+
+      <div className="row g-4 mb-4">
+        <div className="col-xl-5">
+          <Card title="Tests Attended by Level" subtitle="Difficulty breakdown">
+            {testsTotal == null ? (
+              <p className="text-muted mb-0">Analytics unavailable (tests table not configured).</p>
+            ) : (
+              <div className="ak-analytics-split">
+                <DonutChart
+                  size={180}
+                  thickness={18}
+                  segments={difficultySegments}
+                  centerLabelTop={String(numberOrZero(testsTotal))}
+                  centerLabelBottom="Total Tests"
+                />
+                <div className="ak-analytics-legend">
+                  {difficultyLegend.length ? (
+                    difficultyLegend.map((segment) => (
+                      <div key={segment.key} className="ak-analytics-legend-row">
+                        <span className="ak-analytics-dot" style={{ background: segment.color }} />
+                        <span className="ak-analytics-legend-label">{segment.label}</span>
+                        <span className="ak-analytics-legend-metric">
+                          {segment.value} <span className="text-muted">({segment.pct}%)</span>
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-muted mb-0">No test attempts yet.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+        <div className="col-xl-3 col-md-6">
+          <Card title="Accuracy" subtitle="Correct answers / total questions">
+            <div className="d-flex justify-content-center py-2">
+              <RadialProgress
+                size={170}
+                thickness={16}
+                value={accuracyPercent == null ? null : accuracyPercent / 100}
+                label={accuracyPercent == null ? "—" : `${accuracyPercent}%`}
+                sublabel="Correct rate"
+                color="var(--ak-chart-indigo)"
+              />
+            </div>
+            <div className="d-flex justify-content-between text-muted small">
+              <span>Total: {analytics?.answers?.total ?? "—"}</span>
+              <span>Correct: {analytics?.answers?.correct ?? "—"}</span>
+            </div>
+          </Card>
+        </div>
+        <div className="col-xl-4 col-md-6">
+          <Card title="Pass Rate" subtitle={`Tests passed (score ≥ 60%)`}>
+            <div className="d-flex justify-content-center py-2">
+              <RadialProgress
+                size={170}
+                thickness={16}
+                value={passRatePercent == null ? null : passRatePercent / 100}
+                label={passRatePercent == null ? "—" : `${passRatePercent}%`}
+                sublabel="Pass rate"
+                color="var(--ak-chart-green)"
+              />
+            </div>
+            <div className="d-flex justify-content-between text-muted small">
+              <span>Total: {analytics?.tests?.total ?? "—"}</span>
+              <span>Passed: {analytics?.tests?.passed ?? "—"}</span>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <div className="row g-4 mb-4">
+        <div className="col-xl-8">
+          <Card
+            title="Account Creation Trend"
+            subtitle="Hover points to see the count"
+            className="ak-analytics-card"
+          >
+            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+              <div className="text-muted small">
+                {creationView === "monthly" ? "Last 12 months" : "Last 5 years"}
+              </div>
+              <div className="btn-group btn-group-sm" role="group" aria-label="Creation range">
+                <button
+                  type="button"
+                  className={`btn ${creationView === "monthly" ? "btn-ak-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setCreationView("monthly")}
+                >
+                  Month
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${creationView === "yearly" ? "btn-ak-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setCreationView("yearly")}
+                >
+                  Year
+                </button>
+              </div>
+            </div>
+
+            {analytics?.users?.createdSeries ? (
+              <TimeSeriesChart data={creationSeries} height={220} />
+            ) : (
+              <p className="text-muted mb-0">Analytics unavailable (users.created_at not available).</p>
+            )}
+          </Card>
+        </div>
+
+        <div className="col-xl-4">
+          <Card title="System Totals" subtitle="Quick snapshot">
+            <div className="ak-analytics-totals">
+              <div className="ak-analytics-total-row">
+                <span className="text-muted">Notifications</span>
+                <strong>{numberOrZero(notifications?.length)}</strong>
+              </div>
+              <div className="ak-analytics-total-row">
+                <span className="text-muted">Blocked Users</span>
+                <strong>{usersBlocked}</strong>
+              </div>
+              <div className="ak-analytics-total-row">
+                <span className="text-muted">Roles</span>
+                <strong>{roleRows.length || "—"}</strong>
+              </div>
+              <div className="ak-analytics-total-row">
+                <span className="text-muted">Top Professions</span>
+                <strong>{professionRows.length || "—"}</strong>
+              </div>
+            </div>
+            <div className="mt-3">
+              <Link className="btn btn-sm btn-ak-primary w-100" to="/admin/certificates">
+                Open Certificates
+              </Link>
+            </div>
           </Card>
         </div>
       </div>
 
       <div className="row g-4">
-        <div className="col-12">
-          <Card title="All Tests" subtitle="Delete tests or inspect recent activity">
-            <div className="table-responsive">
-              <table className="table table-ak align-middle">
-                <thead>
-                  <tr>
-                    <th>Topic</th>
-                    <th>User</th>
-                    <th>Difficulty</th>
-                    <th>Score</th>
-                    <th>Date</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(tests || []).length ? (
-                    (tests || []).map((test) => (
-                      <tr key={test.id}>
-                        <td>{test.topic}</td>
-                        <td>{test.users?.name || test.user_id}</td>
-                        <td className="text-capitalize">{test.difficulty}</td>
-                        <td>{test.score || 0}%</td>
-                        <td>{new Date(test.date).toLocaleString()}</td>
-                        <td>
-                          <button
-                            className="btn btn-sm btn-outline-danger"
-                            onClick={() => onDeleteTest?.(test.id)}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
+        <div className="col-xl-6">
+          <Card title="Users by Profession" subtitle="Top categories">
+            {professionRows.length ? (
+              <div className="table-responsive">
+                <table className="table table-ak align-middle mb-0">
+                  <thead>
                     <tr>
-                      <td colSpan="6" className="text-center text-muted py-4">
-                        No tests available.
-                      </td>
+                      <th>Profession</th>
+                      <th className="text-end">Users</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {professionRows.map((row) => (
+                      <tr key={row.key}>
+                        <td>{row.label}</td>
+                        <td className="text-end">{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-muted mb-0">No profession data yet.</p>
+            )}
+          </Card>
+        </div>
+
+        <div className="col-xl-6">
+          <Card title="Users by Role" subtitle="Account types">
+            {roleRows.length ? (
+              <div className="table-responsive">
+                <table className="table table-ak align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>Role</th>
+                      <th className="text-end">Users</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roleRows.map((row) => (
+                      <tr key={row.key}>
+                        <td>{row.label}</td>
+                        <td className="text-end">{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-muted mb-0">No role data yet.</p>
+            )}
           </Card>
         </div>
       </div>

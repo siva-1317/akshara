@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../config/env.js";
 import { OAuth2Client } from "google-auth-library";
 import { supabase } from "../config/supabase.js";
 
@@ -156,14 +156,18 @@ export const getCurrentUser = async (req, res, next) => {
       return res.status(400).json({ message: "User ID is required." });
     }
 
-    const { data: storedUser, error } = await supabase
+    const { data, error } = await supabase
       .from("users")
       .select("*")
-      .eq("id", userId)
-      .single();
+      .eq("id", userId);
 
     if (error) {
       throw error;
+    }
+
+    const storedUser = (data || [])[0] || null;
+    if (!storedUser) {
+      return res.status(404).json({ message: "User not found. Please log in again." });
     }
 
     return res.json({
@@ -194,15 +198,19 @@ export const updateCurrentUser = async (req, res, next) => {
       profession: profession.trim() || null
     };
 
-    const { data: storedUser, error } = await supabase
+    const { data, error } = await supabase
       .from("users")
       .update(updatePayload)
       .eq("id", userId)
-      .select("*")
-      .single();
+      .select("*");
 
     if (error) {
       throw error;
+    }
+
+    const storedUser = (data || [])[0] || null;
+    if (!storedUser) {
+      return res.status(404).json({ message: "User not found. Please log in again." });
     }
 
     return res.json({

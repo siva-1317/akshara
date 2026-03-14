@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getTest, submitTest } from "../api";
+import { useToast } from "../components/ToastProvider";
 
 const formatSeconds = (seconds) => {
   const mins = Math.floor(seconds / 60);
@@ -12,6 +13,7 @@ export default function TestPage() {
   const { testId } = useParams();
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("aksharaUser") || "null");
+  const toast = useToast();
   const [test, setTest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -19,6 +21,13 @@ export default function TestPage() {
   const [answers, setAnswers] = useState({});
   const [timeLeft, setTimeLeft] = useState(0);
   const submitLock = useRef(false);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+  }, [error, toast]);
 
   useEffect(() => {
     const loadTest = async () => {
@@ -138,7 +147,10 @@ export default function TestPage() {
     return (
       <div className="page-shell">
         <div className="container">
-          <div className="alert alert-danger">{error || "Test not found."}</div>
+          <div className="ak-card">
+            <h4 className="fw-bold mb-2">Unable to open test</h4>
+            <p className="text-muted mb-0">{error || "Test not found."}</p>
+          </div>
         </div>
       </div>
     );

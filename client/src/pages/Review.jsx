@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { getReview } from "../api";
 import Card from "../components/Card";
+import { useToast } from "../components/ToastProvider";
 
 const formatExplanation = (text = "") => {
   const numberedParts = Array.from(
@@ -21,9 +22,18 @@ const formatExplanation = (text = "") => {
 
 export default function Review() {
   const { testId } = useParams();
+  const toast = useToast();
   const [review, setReview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+    toast.error(error);
+    setError("");
+  }, [error, toast]);
 
   useEffect(() => {
     const loadReview = async () => {
@@ -54,7 +64,6 @@ export default function Review() {
         </div>
 
         {loading ? <p>Loading review...</p> : null}
-        {error ? <div className="alert alert-danger">{error}</div> : null}
 
         <div className="row g-4">
           {review?.questions?.map((question, index) => (

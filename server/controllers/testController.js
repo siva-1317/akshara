@@ -1,6 +1,6 @@
 import { supabase } from "../config/supabase.js";
 import { evaluateTestWithGemini } from "./geminiController.js";
-import { geminiModel } from "../config/gemini.js";
+import { buildQuotaAnnouncement, getGeminiModelForUserId, isQuotaError } from "../utils/geminiClient.js";
 
 const createNotification = async ({ userId = null, type, title, message }) => {
   const { error } = await supabase.from("notifications").insert({
@@ -35,6 +35,50 @@ const isMissingTableError = (error, tableName) => {
   );
 };
 
+const isMissingColumnError = (error, columnName) => {
+  if (!error) {
+    return false;
+  }
+
+  const message = String(error.message || "").toLowerCase();
+  const details = String(error.details || "").toLowerCase();
+  const target = String(columnName || "").toLowerCase();
+
+  return (
+    message.includes(`column`) &&
+    (message.includes(`does not exist`) || details.includes(`does not exist`)) &&
+    (message.includes(target) || details.includes(target))
+  );
+};
+
+const getActiveOfferForUserId = async (userId) => {
+  if (!userId) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("offers")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .lte("starts_at", now)
+    .or(`ends_at.is.null,ends_at.gt.${now}`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (isMissingTableError(error, "offers")) {
+    return null;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || [])[0] || null;
+};
+
 const calculateFallbackEvaluation = (questions, answers, topic) => {
   let correct = 0;
 
@@ -51,6 +95,65 @@ const calculateFallbackEvaluation = (questions, answers, topic) => {
     weakTopics: score < 70 ? [topic] : [],
     explanation: score < 70 ? "Focus on fundamentals and practice similar questions." : "Strong performance overall."
   };
+};
+
+const extractJson = (text) => {
+  const cleaned = String(text || "").replace(/```json|```/g, "").trim();
+  return JSON.parse(cleaned);
+};
+
+const normalizeRewardType = (value) => String(value || "").trim().toLowerCase();
+
+const shouldIssueCertificate = (rewardType) => ["certificate", "both"].includes(normalizeRewardType(rewardType));
+const shouldAwardCoins = (rewardType) => ["coins", "both"].includes(normalizeRewardType(rewardType));
+
+const generateCertificateData = async ({ userName, publishedTest, score, issuedAtIso, requesterUserId }) => {
+  const fallback = {
+    recipientName: String(userName || "Learner").trim() || "Learner",
+    title: "Certificate of Completion",
+    body: `This certifies that ${String(userName || "Learner").trim() || "Learner"} has successfully completed "${
+      publishedTest?.title || publishedTest?.topic || "AKSHARA Test"
+    }" on AKSHARA.`,
+    issuer: "AKSHARA",
+    score,
+    issuedAt: issuedAtIso,
+    testTitle: publishedTest?.title || publishedTest?.topic || "AKSHARA Test"
+  };
+
+  try {
+    const prompt = `
+Create a short certificate content for an online test portal.
+
+Recipient name: ${fallback.recipientName}
+Test title: ${fallback.testTitle}
+Topic: ${publishedTest?.topic || ""}
+Score (percentage): ${score}
+Issued at (ISO): ${issuedAtIso}
+Issuer: AKSHARA
+
+Return valid JSON only in this exact shape:
+{
+  "title": "string",
+  "body": "string",
+  "recipientName": "string",
+  "issuer": "string"
+}
+`;
+    const { model } = await getGeminiModelForUserId(requesterUserId);
+    const result = await model.generateContent(prompt);
+    const parsed = extractJson(result.response.text());
+    const merged = {
+      ...fallback,
+      title: String(parsed?.title || fallback.title).trim() || fallback.title,
+      body: String(parsed?.body || fallback.body).trim() || fallback.body,
+      recipientName: String(parsed?.recipientName || fallback.recipientName).trim() || fallback.recipientName,
+      issuer: String(parsed?.issuer || fallback.issuer).trim() || fallback.issuer
+    };
+    return merged;
+  } catch (error) {
+    console.warn("Certificate generation failed; using fallback.", error.message);
+    return fallback;
+  }
 };
 
 const CONTRIBUTION_TIME_ZONE = "Asia/Kolkata";
@@ -132,19 +235,46 @@ const buildContributionGraph = (tests, days = 126) => {
 
 export const createTest = async (req, res, next) => {
   try {
-    const { userId, topic, difficulty, questionCount, totalTime, examType, subtopics = [] } = req.body;
+    const {
+      userId,
+      topic,
+      difficulty,
+      questionCount,
+      totalTime,
+      examType,
+      subtopics = [],
+      paymentMode = null
+    } = req.body;
     const headerUserId = req.headers["x-user-id"];
     const headerRole = req.headers["x-user-role"];
-
-    if (!userId || !topic || !difficulty || !questionCount || !totalTime || !examType) {
-      return res.status(400).json({ message: "Missing required test fields." });
-    }
 
     if (headerUserId && headerRole !== "admin" && headerUserId !== userId) {
       return res.status(403).json({ message: "Unauthorized test creation." });
     }
 
-    const desiredCount = Math.floor(Number(questionCount));
+    const mode = String(paymentMode || "").trim().toLowerCase();
+    const wantsOffer = mode === "offer";
+    const wantsCoins = mode === "coins" || !mode;
+    if (!wantsOffer && !wantsCoins) {
+      return res.status(400).json({ message: "paymentMode must be 'offer' or 'coins'." });
+    }
+
+    const activeOffer = wantsOffer ? await getActiveOfferForUserId(userId) : null;
+    if (wantsOffer && !activeOffer) {
+      return res.status(403).json({ message: "No active offer available for this user." });
+    }
+
+    const effectiveDifficulty = activeOffer?.fixed_difficulty || difficulty;
+    const effectiveExamType = activeOffer?.fixed_exam_type || examType;
+
+    const effectiveQuestionCountRaw =
+      activeOffer?.fixed_question_count != null ? activeOffer.fixed_question_count : questionCount;
+
+    if (!userId || !topic || !effectiveDifficulty || !effectiveQuestionCountRaw || !totalTime || !effectiveExamType) {
+      return res.status(400).json({ message: "Missing required test fields." });
+    }
+
+    const desiredCount = Math.floor(Number(effectiveQuestionCountRaw));
     if (!Number.isFinite(desiredCount) || desiredCount <= 0) {
       return res.status(400).json({ message: "questionCount must be a positive number." });
     }
@@ -160,20 +290,22 @@ export const createTest = async (req, res, next) => {
     }
 
     const currentCoins = Number.isFinite(userRow.coins) ? userRow.coins : 0;
-    if (currentCoins <= 0) {
+    if (!activeOffer && currentCoins <= 0) {
       return res.status(403).json({ message: "Not enough coins to attend a test." });
     }
 
-    const allowedCount = Math.min(desiredCount, currentCoins);
-    const nextCoins = currentCoins - allowedCount;
+    const allowedCount = activeOffer ? desiredCount : Math.min(desiredCount, currentCoins);
+    const nextCoins = activeOffer ? currentCoins : currentCoins - allowedCount;
 
-    const { error: coinUpdateError } = await supabase
-      .from("users")
-      .update({ coins: nextCoins })
-      .eq("id", userId);
+    if (!activeOffer) {
+      const { error: coinUpdateError } = await supabase
+        .from("users")
+        .update({ coins: nextCoins })
+        .eq("id", userId);
 
-    if (coinUpdateError) {
-      throw coinUpdateError;
+      if (coinUpdateError) {
+        throw coinUpdateError;
+      }
     }
 
     const cleanedSubtopics = Array.isArray(subtopics)
@@ -188,11 +320,11 @@ export const createTest = async (req, res, next) => {
     const payload = {
       user_id: userId,
       topic,
-      difficulty,
+      difficulty: effectiveDifficulty,
       score: 0,
       time: totalTime,
       date: new Date().toISOString(),
-      exam_type: examType,
+      exam_type: effectiveExamType,
       question_count: allowedCount,
       total_time: totalTime,
       sub_topics: cleanedSubtopics
@@ -214,12 +346,14 @@ export const createTest = async (req, res, next) => {
     }
 
     return res.status(201).json({
-      message: allowedCount < desiredCount
+      message: activeOffer
+        ? "Offer active: test created without using coins."
+        : allowedCount < desiredCount
         ? `Test created with ${allowedCount} questions based on your available coins.`
         : "Test created successfully.",
       test: data,
       coins: nextCoins,
-      usedCoins: allowedCount
+      usedCoins: activeOffer ? 0 : allowedCount
     });
   } catch (error) {
     next(error);
@@ -248,6 +382,30 @@ export const getHistory = async (req, res, next) => {
 export const getDashboard = async (req, res, next) => {
   try {
     const { userId } = req.query;
+    const serverTime = new Date().toISOString();
+    const activeOffer = await getActiveOfferForUserId(userId);
+
+    const offerPayload = activeOffer
+      ? {
+          id: activeOffer.id,
+          type: activeOffer.offer_type,
+          startsAt: activeOffer.starts_at,
+          endsAt: activeOffer.ends_at || null,
+          fixedQuestionCount: activeOffer.fixed_question_count ?? null,
+          fixedDifficulty: activeOffer.fixed_difficulty ?? null,
+          fixedExamType: activeOffer.fixed_exam_type ?? null,
+          status: activeOffer.status,
+          serverTime
+        }
+      : null;
+
+    const { data: onboardingRow, error: onboardingError } = await supabase
+      .from("user_onboarding")
+      .select("ai_result")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const personalization = onboardingError ? null : onboardingRow?.ai_result || null;
 
     const { data: tests, error } = await supabase
       .from("tests")
@@ -312,20 +470,35 @@ export const getDashboard = async (req, res, next) => {
         ? `Your next best revision topic is ${topicBreakdown[1].topic}.`
         : "Keep building history to unlock more targeted recommendations."
     ];
+
+    const onboardingSuggestions =
+      !totalTests && personalization
+        ? [
+            ...(Array.isArray(personalization?.suggestedTests) ? personalization.suggestedTests : []),
+            ...(Array.isArray(personalization?.learningFocus) ? personalization.learningFocus : [])
+          ].filter(Boolean).slice(0, 3)
+        : [];
+
     const contributionGraph = buildContributionGraph(tests);
 
     return res.json({
       totalTests,
       averageScore,
-      weakTopics,
+      weakTopics: totalTests
+        ? weakTopics
+        : Array.isArray(personalization?.weakAreas)
+          ? personalization.weakAreas.slice(0, 3)
+          : weakTopics,
       strongestTopic,
       improvement,
       consistency,
       completionRate,
       topicBreakdown,
       recentScores,
-      suggestions,
+      suggestions: onboardingSuggestions.length ? onboardingSuggestions : suggestions,
       contributionGraph,
+      personalization,
+      offer: offerPayload,
       suggestedTest: weakTopics[0]
         ? `${weakTopics[0]} practice test`
         : "Try a medium difficulty mixed-topic test",
@@ -373,6 +546,7 @@ export const getTestById = async (req, res, next) => {
 export const submitTest = async (req, res, next) => {
   try {
     const { testId, userId, answers = [] } = req.body;
+    const requesterUserId = req.headers["x-user-id"] || userId;
 
     const { data: test, error: testError } = await supabase
       .from("tests")
@@ -396,7 +570,8 @@ export const submitTest = async (req, res, next) => {
 
     let evaluation;
     try {
-      evaluation = await evaluateTestWithGemini({ test, questions, answers });
+      const { model } = await getGeminiModelForUserId(requesterUserId);
+      evaluation = await evaluateTestWithGemini({ test, questions, answers, model });
     } catch (geminiError) {
       console.warn("Gemini evaluation failed, using fallback scoring.", geminiError.message);
       evaluation = calculateFallbackEvaluation(questions, answers, test.topic);
@@ -436,13 +611,172 @@ export const submitTest = async (req, res, next) => {
       throw updateError;
     }
 
+    let taskCompletion = null;
+    if (updatedTest?.published_test_id) {
+      const { data: publishedTest, error: publishedTestError } = await supabase
+        .from("published_tests")
+        .select("*")
+        .eq("id", updatedTest.published_test_id)
+        .maybeSingle();
+
+      if (!isMissingTableError(publishedTestError, "published_tests")) {
+        if (publishedTestError) {
+          throw publishedTestError;
+        }
+
+        if (publishedTest) {
+          const passMark = Number.isFinite(Number(publishedTest.pass_mark)) ? Number(publishedTest.pass_mark) : 60;
+          const passed = Number(evaluation.score || 0) >= passMark;
+
+          if (passed) {
+            const { data: existingCompletion, error: completionError } = await supabase
+              .from("task_completions")
+              .select("*")
+              .eq("user_id", userId)
+              .eq("published_test_id", publishedTest.id)
+              .maybeSingle();
+
+            if (!isMissingTableError(completionError, "task_completions")) {
+              if (completionError) {
+                throw completionError;
+              }
+
+              if (existingCompletion) {
+                taskCompletion = existingCompletion;
+              } else {
+                let certificateId = null;
+                let coinsAwarded = 0;
+
+                const rewardType = publishedTest.reward_type || "certificate";
+
+                if (shouldAwardCoins(rewardType)) {
+                  const rewardCoins = Math.max(0, Math.floor(Number(publishedTest.reward_coins) || 0));
+                  if (rewardCoins > 0) {
+                    const { data: coinUser, error: coinUserError } = await supabase
+                      .from("users")
+                      .select("coins")
+                      .eq("id", userId)
+                      .single();
+
+                    if (coinUserError) {
+                      throw coinUserError;
+                    }
+
+                    const nextCoins = (Number.isFinite(coinUser?.coins) ? coinUser.coins : 0) + rewardCoins;
+                    const { error: updateCoinError } = await supabase
+                      .from("users")
+                      .update({ coins: nextCoins })
+                      .eq("id", userId);
+
+                    if (updateCoinError) {
+                      throw updateCoinError;
+                    }
+
+                    coinsAwarded = rewardCoins;
+                  }
+                }
+
+                if (shouldIssueCertificate(rewardType)) {
+                  const { data: userRow, error: userRowError } = await supabase
+                    .from("users")
+                    .select("name")
+                    .eq("id", userId)
+                    .maybeSingle();
+
+                  if (userRowError) {
+                    throw userRowError;
+                  }
+
+                  const issuedAtIso = new Date().toISOString();
+                  const certificateData = await generateCertificateData({
+                    userName: userRow?.name || "Learner",
+                    publishedTest,
+                    score: evaluation.score,
+                    issuedAtIso,
+                    requesterUserId
+                  });
+
+                  const { data: existingCert, error: existingCertError } = await supabase
+                    .from("certificates")
+                    .select("id")
+                    .eq("user_id", userId)
+                    .eq("published_test_id", publishedTest.id)
+                    .maybeSingle();
+
+                  if (!isMissingTableError(existingCertError, "certificates")) {
+                    if (existingCertError) {
+                      throw existingCertError;
+                    }
+
+                    if (existingCert?.id) {
+                      certificateId = existingCert.id;
+                    } else {
+                      const { data: createdCert, error: certCreateError } = await supabase
+                        .from("certificates")
+                        .insert({
+                          user_id: userId,
+                          published_test_id: publishedTest.id,
+                          test_id: testId,
+                          certificate_data: certificateData,
+                          issued_at: issuedAtIso
+                        })
+                        .select("id")
+                        .single();
+
+                      if (isMissingTableError(certCreateError, "certificates")) {
+                        // Ignore if schema isn't applied yet.
+                      } else if (certCreateError) {
+                        throw certCreateError;
+                      } else {
+                        certificateId = createdCert?.id || null;
+                      }
+                    }
+                  }
+                }
+
+                const { data: createdCompletion, error: createCompletionError } = await supabase
+                  .from("task_completions")
+                  .insert({
+                    user_id: userId,
+                    published_test_id: publishedTest.id,
+                    test_id: testId,
+                    score: evaluation.score,
+                    coins_awarded: coinsAwarded,
+                    certificate_id: certificateId,
+                    completed_at: new Date().toISOString()
+                  })
+                  .select("*")
+                  .single();
+
+                if (isMissingTableError(createCompletionError, "task_completions")) {
+                  // Ignore if schema isn't applied yet.
+                } else if (createCompletionError) {
+                  throw createCompletionError;
+                } else {
+                  taskCompletion = createdCompletion;
+                }
+
+                await createNotification({
+                  userId,
+                  type: "task",
+                  title: "Task completed",
+                  message: `You passed "${publishedTest.title}" with ${evaluation.score}%.`
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
     return res.json({
       message: "Test submitted successfully.",
       result: {
         score: evaluation.score,
         weakTopics: evaluation.weakTopics,
         explanation: evaluation.explanation,
-        test: updatedTest
+        test: updatedTest,
+        taskCompletion
       }
     });
   } catch (error) {
@@ -542,6 +876,40 @@ export const getAdminUsers = async (_req, res, next) => {
   }
 };
 
+
+export const deleteAdminUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User id is required." });
+    }
+
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("id, role, email, name")
+      .eq("id", userId)
+      .single();
+
+    if (userError) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    if (user?.role === "admin") {
+      return res.status(400).json({ message: "Cannot delete admin users." });
+    }
+
+    const { data, error } = await supabase.from("users").delete().eq("id", userId).select("id");
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ message: "User deleted.", id: (data || [])[0]?.id || userId });
+  } catch (error) {
+    next(error);
+  }
+};
 export const getAdminTests = async (_req, res, next) => {
   try {
     const { data, error } = await supabase
@@ -1148,6 +1516,738 @@ export const grantCoinsToUser = async (req, res, next) => {
   }
 };
 
+export const revokeCoinsFromUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { coins } = req.body;
+
+    const amount = Number(coins);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ message: "coins must be a positive number." });
+    }
+
+    const { data: userRow, error: userError } = await supabase
+      .from("users")
+      .select("coins")
+      .eq("id", userId)
+      .single();
+
+    if (userError) {
+      throw userError;
+    }
+
+    const currentCoins = Number.isFinite(userRow.coins) ? userRow.coins : 0;
+    const nextCoins = Math.max(0, currentCoins - Math.floor(amount));
+    const revoked = Math.min(currentCoins, Math.floor(amount));
+
+    const { data: updatedUser, error } = await supabase
+      .from("users")
+      .update({ coins: nextCoins })
+      .eq("id", userId)
+      .select("*")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    await createNotification({
+      userId,
+      type: "coins",
+      title: "Coins revoked",
+      message: `Admin revoked ${revoked} coins. Your new balance is ${nextCoins}.`
+    });
+
+    return res.json({
+      message: "Coins revoked successfully.",
+      user: updatedUser,
+      coins: nextCoins,
+      revoked
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdminOffers = async (_req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("offers")
+      .select("*, submitter:users!offers_user_id_fkey(name,email)")
+      .order("created_at", { ascending: false });
+
+    if (isMissingTableError(error, "offers")) {
+      return res.json({ offers: [] });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ offers: data || [] });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createAdminOffers = async (req, res, next) => {
+  try {
+    const adminUserId = req.headers["x-user-id"] || null;
+    const {
+      userIds = [],
+      offerType,
+      endsAt = null,
+      days = null,
+      fixedQuestionCount = null,
+      fixedDifficulty = null,
+      fixedExamType = null
+    } = req.body || {};
+
+    const cleanedUserIds = Array.isArray(userIds) ? [...new Set(userIds.map((id) => String(id || "").trim()).filter(Boolean))] : [];
+    if (!cleanedUserIds.length) {
+      return res.status(400).json({ message: "userIds is required." });
+    }
+
+    const type = String(offerType || "").trim().toLowerCase();
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    let computedEndsAt = null;
+
+    if (type === "time") {
+      const parsed = new Date(String(endsAt || ""));
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({ message: "Valid endsAt is required for time based offers." });
+      }
+      if (parsed.getTime() <= now.getTime()) {
+        return res.status(400).json({ message: "endsAt must be in the future." });
+      }
+      computedEndsAt = parsed.toISOString();
+    } else if (type === "days") {
+      const dayCount = Number(days);
+      if (!Number.isFinite(dayCount) || dayCount <= 0) {
+        return res.status(400).json({ message: "days must be a positive number for days based offers." });
+      }
+      const end = new Date(now);
+      end.setDate(end.getDate() + Math.floor(dayCount));
+      computedEndsAt = end.toISOString();
+    } else if (type === "lifetime") {
+      computedEndsAt = null;
+    } else {
+      return res.status(400).json({ message: "offerType must be one of: time, days, lifetime." });
+    }
+
+    const allowedDifficulties = new Set(["easy", "medium", "hard"]);
+    const allowedExamTypes = new Set(["no return", "return allowed", "per question timer", "total timer"]);
+
+    const fixedQuestionCountValue =
+      fixedQuestionCount == null || fixedQuestionCount === ""
+        ? null
+        : Math.floor(Number(fixedQuestionCount));
+
+    if (fixedQuestionCountValue != null) {
+      if (!Number.isFinite(fixedQuestionCountValue) || fixedQuestionCountValue <= 0) {
+        return res.status(400).json({ message: "fixedQuestionCount must be a positive number." });
+      }
+    }
+
+    const fixedDifficultyValue =
+      fixedDifficulty == null || String(fixedDifficulty).trim() === "" ? null : String(fixedDifficulty).trim().toLowerCase();
+
+    if (fixedDifficultyValue != null && !allowedDifficulties.has(fixedDifficultyValue)) {
+      return res.status(400).json({ message: "fixedDifficulty must be one of: easy, medium, hard." });
+    }
+
+    const fixedExamTypeValue =
+      fixedExamType == null || String(fixedExamType).trim() === "" ? null : String(fixedExamType).trim().toLowerCase();
+
+    if (fixedExamTypeValue != null && !allowedExamTypes.has(fixedExamTypeValue)) {
+      return res.status(400).json({
+        message: "fixedExamType must be one of: no return, return allowed, per question timer, total timer."
+      });
+    }
+
+    const cancelPayload = {
+      status: "cancelled",
+      cancelled_at: nowIso,
+      ends_at: nowIso
+    };
+
+    const cancelQuery = supabase
+      .from("offers")
+      .update(cancelPayload)
+      .in("user_id", cleanedUserIds)
+      .eq("status", "active")
+      .or(`ends_at.is.null,ends_at.gt.${nowIso}`);
+
+    const { error: cancelError } = await cancelQuery;
+
+    if (isMissingTableError(cancelError, "offers")) {
+      return res.status(503).json({
+        message: "Offers table is not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (cancelError) {
+      throw cancelError;
+    }
+
+    const rows = cleanedUserIds.map((userId) => ({
+      user_id: userId,
+      offer_type: type,
+      starts_at: nowIso,
+      ends_at: computedEndsAt,
+      fixed_question_count: fixedQuestionCountValue,
+      fixed_difficulty: fixedDifficultyValue,
+      fixed_exam_type: fixedExamTypeValue,
+      status: "active",
+      created_by: adminUserId
+    }));
+
+    const { data, error } = await supabase
+      .from("offers")
+      .insert(rows)
+      .select("*, submitter:users!offers_user_id_fkey(name,email)");
+
+    if (isMissingTableError(error, "offers")) {
+      return res.status(503).json({
+        message: "Offers table is not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.status(201).json({
+      message: "Offer created successfully.",
+      offers: data || []
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelAdminOffers = async (req, res, next) => {
+  try {
+    const { userIds = [] } = req.body || {};
+
+    const cleanedUserIds = Array.isArray(userIds) ? [...new Set(userIds.map((id) => String(id || "").trim()).filter(Boolean))] : [];
+    if (!cleanedUserIds.length) {
+      return res.status(400).json({ message: "userIds is required." });
+    }
+
+    const nowIso = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("offers")
+      .update({
+        status: "cancelled",
+        cancelled_at: nowIso,
+        ends_at: nowIso
+      })
+      .in("user_id", cleanedUserIds)
+      .eq("status", "active")
+      .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
+      .select("id");
+
+    if (isMissingTableError(error, "offers")) {
+      return res.status(503).json({
+        message: "Offers table is not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({
+      message: `Cancelled ${(data || []).length} offer(s).`,
+      cancelledCount: (data || []).length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateAdminOffer = async (req, res, next) => {
+  try {
+    const { offerId } = req.params;
+    const { endsAt = undefined, fixedQuestionCount = undefined, fixedDifficulty = undefined, fixedExamType = undefined } =
+      req.body || {};
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("offers")
+      .select("*")
+      .eq("id", offerId)
+      .single();
+
+    if (isMissingTableError(fetchError, "offers")) {
+      return res.status(503).json({
+        message: "Offers table is not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    const allowedDifficulties = new Set(["easy", "medium", "hard"]);
+    const allowedExamTypes = new Set(["no return", "return allowed", "per question timer", "total timer"]);
+
+    const updatePayload = {};
+
+    if (fixedQuestionCount !== undefined) {
+      if (fixedQuestionCount == null || fixedQuestionCount === "") {
+        updatePayload.fixed_question_count = null;
+      } else {
+        const parsed = Math.floor(Number(fixedQuestionCount));
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          return res.status(400).json({ message: "fixedQuestionCount must be a positive number." });
+        }
+        updatePayload.fixed_question_count = parsed;
+      }
+    }
+
+    if (fixedDifficulty !== undefined) {
+      if (fixedDifficulty == null || String(fixedDifficulty).trim() === "") {
+        updatePayload.fixed_difficulty = null;
+      } else {
+        const parsed = String(fixedDifficulty).trim().toLowerCase();
+        if (!allowedDifficulties.has(parsed)) {
+          return res.status(400).json({ message: "fixedDifficulty must be one of: easy, medium, hard." });
+        }
+        updatePayload.fixed_difficulty = parsed;
+      }
+    }
+
+    if (fixedExamType !== undefined) {
+      if (fixedExamType == null || String(fixedExamType).trim() === "") {
+        updatePayload.fixed_exam_type = null;
+      } else {
+        const parsed = String(fixedExamType).trim().toLowerCase();
+        if (!allowedExamTypes.has(parsed)) {
+          return res.status(400).json({
+            message: "fixedExamType must be one of: no return, return allowed, per question timer, total timer."
+          });
+        }
+        updatePayload.fixed_exam_type = parsed;
+      }
+    }
+
+    if (endsAt !== undefined) {
+      if (endsAt == null || String(endsAt).trim() === "") {
+        if (String(existing.offer_type || "").toLowerCase() !== "lifetime") {
+          return res.status(400).json({ message: "Only lifetime offers can have endsAt cleared." });
+        }
+        updatePayload.ends_at = null;
+      } else {
+        const parsed = new Date(String(endsAt));
+        if (Number.isNaN(parsed.getTime())) {
+          return res.status(400).json({ message: "Valid endsAt is required." });
+        }
+        const now = new Date();
+        if (parsed.getTime() <= now.getTime()) {
+          return res.status(400).json({ message: "endsAt must be in the future." });
+        }
+        updatePayload.ends_at = parsed.toISOString();
+      }
+    }
+
+    if (!Object.keys(updatePayload).length) {
+      return res.json({ message: "No changes.", offer: existing });
+    }
+
+    const { data, error } = await supabase
+      .from("offers")
+      .update(updatePayload)
+      .eq("id", offerId)
+      .select("*, submitter:users!offers_user_id_fkey(name,email)")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ message: "Offer updated.", offer: data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdminOfferTemplates = async (_req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("offer_templates")
+      .select("*")
+      .order("updated_at", { ascending: false });
+
+    if (isMissingTableError(error, "offer_templates")) {
+      return res.json({ templates: [] });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ templates: data || [] });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAdminAnalytics = async (_req, res, next) => {
+  try {
+    const answersTotalQuery = supabase.from("answers").select("id", { count: "exact", head: true });
+    const answersCorrectQuery = supabase
+      .from("answers")
+      .select("id", { count: "exact", head: true })
+      .eq("is_correct", true);
+
+    const passMark = 60;
+
+    const testsTotalQuery = supabase.from("tests").select("id", { count: "exact", head: true });
+    const testsPassedQuery = supabase
+      .from("tests")
+      .select("id", { count: "exact", head: true })
+      .gte("score", passMark);
+    const testsEasyQuery = supabase
+      .from("tests")
+      .select("id", { count: "exact", head: true })
+      .eq("difficulty", "easy");
+    const testsMediumQuery = supabase
+      .from("tests")
+      .select("id", { count: "exact", head: true })
+      .eq("difficulty", "medium");
+    const testsHardQuery = supabase
+      .from("tests")
+      .select("id", { count: "exact", head: true })
+      .eq("difficulty", "hard");
+
+    const fetchAllUsers = async (selectColumns) => {
+      const pageSize = 1000;
+      const maxRows = 50000;
+      const rows = [];
+
+      for (let from = 0; from < maxRows; from += pageSize) {
+        const { data, error } = await supabase
+          .from("users")
+          .select(selectColumns)
+          .range(from, from + pageSize - 1);
+
+        if (isMissingTableError(error, "users")) {
+          return { rows: [], usersTableMissing: true, createdAtMissing: false };
+        }
+
+        if (isMissingColumnError(error, "created_at")) {
+          return { rows: null, usersTableMissing: false, createdAtMissing: true };
+        }
+
+        if (error) {
+          throw error;
+        }
+
+        const batch = data || [];
+        rows.push(...batch);
+
+        if (batch.length < pageSize) {
+          break;
+        }
+      }
+
+      return { rows, usersTableMissing: false, createdAtMissing: false };
+    };
+
+    const [answersTotalRes, answersCorrectRes, testsTotalRes, testsPassedRes, testsEasyRes, testsMediumRes, testsHardRes] =
+      await Promise.all([
+      answersTotalQuery,
+      answersCorrectQuery,
+      testsTotalQuery,
+      testsPassedQuery,
+      testsEasyQuery,
+      testsMediumQuery,
+      testsHardQuery
+    ]);
+
+    const answersTableMissing = isMissingTableError(answersTotalRes.error, "answers")
+      || isMissingTableError(answersCorrectRes.error, "answers");
+
+    const testsTableMissing = isMissingTableError(testsTotalRes.error, "tests")
+      || isMissingTableError(testsPassedRes.error, "tests")
+      || isMissingTableError(testsEasyRes.error, "tests")
+      || isMissingTableError(testsMediumRes.error, "tests")
+      || isMissingTableError(testsHardRes.error, "tests");
+
+    if (!answersTableMissing) {
+      if (answersTotalRes.error) {
+        throw answersTotalRes.error;
+      }
+      if (answersCorrectRes.error) {
+        throw answersCorrectRes.error;
+      }
+    }
+
+    if (!testsTableMissing) {
+      if (testsTotalRes.error) {
+        throw testsTotalRes.error;
+      }
+      if (testsPassedRes.error) {
+        throw testsPassedRes.error;
+      }
+      if (testsEasyRes.error) {
+        throw testsEasyRes.error;
+      }
+      if (testsMediumRes.error) {
+        throw testsMediumRes.error;
+      }
+      if (testsHardRes.error) {
+        throw testsHardRes.error;
+      }
+    }
+
+    const primaryUsers = await fetchAllUsers("id, role, profession, is_blocked, created_at");
+    let usersTableMissing = primaryUsers.usersTableMissing;
+    let createdAtMissing = primaryUsers.createdAtMissing;
+    let users = primaryUsers.rows || [];
+
+    if (!usersTableMissing && createdAtMissing) {
+      const fallbackUsers = await fetchAllUsers("id, role, profession, is_blocked");
+      usersTableMissing = fallbackUsers.usersTableMissing;
+      users = fallbackUsers.rows || [];
+    }
+
+    const usersByProfession = users.reduce((accumulator, user) => {
+      const key = String(user.profession || "unknown").trim().toLowerCase() || "unknown";
+      accumulator[key] = (accumulator[key] || 0) + 1;
+      return accumulator;
+    }, {});
+
+    const totalUsers = users.length;
+    const blockedUsers = users.filter((user) => user.is_blocked).length;
+    const roleCounts = users.reduce((accumulator, user) => {
+      const role = String(user.role || "user").trim().toLowerCase() || "user";
+      accumulator[role] = (accumulator[role] || 0) + 1;
+      return accumulator;
+    }, {});
+
+    const answersTotal = answersTableMissing ? null : answersTotalRes.count ?? 0;
+    const answersCorrect = answersTableMissing ? null : answersCorrectRes.count ?? 0;
+
+    const testsTotal = testsTableMissing ? null : testsTotalRes.count ?? 0;
+    const testsPassed = testsTableMissing ? null : testsPassedRes.count ?? 0;
+    const testsByDifficulty = testsTableMissing
+      ? null
+      : {
+          easy: testsEasyRes.count ?? 0,
+          medium: testsMediumRes.count ?? 0,
+          hard: testsHardRes.count ?? 0
+        };
+
+    if (testsByDifficulty && testsTotal != null) {
+      const known = Object.values(testsByDifficulty).reduce((sum, value) => sum + (Number(value) || 0), 0);
+      const other = Math.max(0, (Number(testsTotal) || 0) - known);
+      testsByDifficulty.other = other;
+    }
+
+    const accuracyPercent =
+      answersTotal != null && answersTotal > 0 && answersCorrect != null
+        ? Math.round((answersCorrect / answersTotal) * 100)
+        : null;
+
+    const testsPassRatePercent =
+      testsTotal != null && testsTotal > 0 && testsPassed != null ? Math.round((testsPassed / testsTotal) * 100) : null;
+
+    const now = new Date();
+    const monthKeys = Array.from({ length: 12 }).map((_, index) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const monthLabel = d.toLocaleString("en-US", { month: "short" });
+      return {
+        key: `${year}-${month}`,
+        label: `${monthLabel} ${year}`
+      };
+    });
+
+    const yearKeys = Array.from({ length: 5 }).map((_, index) => {
+      const year = now.getFullYear() - (4 - index);
+      return { key: String(year), label: String(year) };
+    });
+
+    let userCreatedSeries = null;
+    if (!usersTableMissing && !createdAtMissing) {
+      const monthCounts = {};
+      const yearCounts = {};
+
+      users.forEach((user) => {
+        if (!user.created_at) {
+          return;
+        }
+        const d = new Date(user.created_at);
+        if (Number.isNaN(d.getTime())) {
+          return;
+        }
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const monthKey = `${y}-${m}`;
+        const yearKey = String(y);
+        monthCounts[monthKey] = (monthCounts[monthKey] || 0) + 1;
+        yearCounts[yearKey] = (yearCounts[yearKey] || 0) + 1;
+      });
+
+      userCreatedSeries = {
+        monthly: monthKeys.map(({ key, label }) => ({ key, label, count: Number(monthCounts[key] || 0) })),
+        yearly: yearKeys.map(({ key, label }) => ({ key, label, count: Number(yearCounts[key] || 0) }))
+      };
+    }
+
+    return res.json({
+      answers: {
+        total: answersTotal,
+        correct: answersCorrect,
+        accuracyPercent
+      },
+      tests: {
+        total: testsTotal,
+        passed: testsPassed,
+        passRatePercent: testsPassRatePercent,
+        byDifficulty: testsByDifficulty
+      },
+      users: {
+        total: totalUsers,
+        blocked: blockedUsers,
+        byRole: roleCounts,
+        byProfession: usersByProfession,
+        createdSeries: userCreatedSeries
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const upsertAdminOfferTemplate = async (req, res, next) => {
+  try {
+    const adminUserId = req.headers["x-user-id"] || null;
+    const {
+      name,
+      offerType,
+      days = null,
+      fixedQuestionCount = null,
+      fixedDifficulty = null,
+      fixedExamType = null
+    } = req.body || {};
+
+    const templateName = String(name || "").trim();
+    if (!templateName) {
+      return res.status(400).json({ message: "name is required." });
+    }
+
+    const type = String(offerType || "").trim().toLowerCase();
+    if (!["time", "days", "lifetime"].includes(type)) {
+      return res.status(400).json({ message: "offerType must be one of: time, days, lifetime." });
+    }
+
+    const allowedDifficulties = new Set(["easy", "medium", "hard"]);
+    const allowedExamTypes = new Set(["no return", "return allowed", "per question timer", "total timer"]);
+
+    const fixedQuestionCountValue =
+      fixedQuestionCount == null || fixedQuestionCount === ""
+        ? null
+        : Math.floor(Number(fixedQuestionCount));
+
+    if (fixedQuestionCountValue != null) {
+      if (!Number.isFinite(fixedQuestionCountValue) || fixedQuestionCountValue <= 0) {
+        return res.status(400).json({ message: "fixedQuestionCount must be a positive number." });
+      }
+    }
+
+    const fixedDifficultyValue =
+      fixedDifficulty == null || String(fixedDifficulty).trim() === "" ? null : String(fixedDifficulty).trim().toLowerCase();
+
+    if (fixedDifficultyValue != null && !allowedDifficulties.has(fixedDifficultyValue)) {
+      return res.status(400).json({ message: "fixedDifficulty must be one of: easy, medium, hard." });
+    }
+
+    const fixedExamTypeValue =
+      fixedExamType == null || String(fixedExamType).trim() === "" ? null : String(fixedExamType).trim().toLowerCase();
+
+    if (fixedExamTypeValue != null && !allowedExamTypes.has(fixedExamTypeValue)) {
+      return res.status(400).json({
+        message: "fixedExamType must be one of: no return, return allowed, per question timer, total timer."
+      });
+    }
+
+    const daysValue = type === "days"
+      ? Math.floor(Number(days))
+      : null;
+
+    if (type === "days") {
+      if (!Number.isFinite(daysValue) || daysValue <= 0) {
+        return res.status(400).json({ message: "days must be a positive number for days based templates." });
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const payload = {
+      name: templateName,
+      offer_type: type,
+      days: daysValue,
+      fixed_question_count: fixedQuestionCountValue,
+      fixed_difficulty: fixedDifficultyValue,
+      fixed_exam_type: fixedExamTypeValue,
+      created_by: adminUserId,
+      updated_at: nowIso
+    };
+
+    const { data, error } = await supabase
+      .from("offer_templates")
+      .upsert(payload, { onConflict: "name" })
+      .select("*")
+      .single();
+
+    if (isMissingTableError(error, "offer_templates")) {
+      return res.status(503).json({
+        message: "Offer templates are not configured in the database yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.status(201).json({ message: "Template saved.", template: data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteAdminOfferTemplate = async (req, res, next) => {
+  try {
+    const { templateId } = req.params;
+
+    const { data, error } = await supabase
+      .from("offer_templates")
+      .delete()
+      .eq("id", templateId)
+      .select("id");
+
+    if (isMissingTableError(error, "offer_templates")) {
+      return res.status(503).json({
+        message: "Offer templates are not configured in the database yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ message: "Template deleted.", id: (data || [])[0]?.id || templateId });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getNotifications = async (req, res, next) => {
   try {
     const role = req.headers["x-user-role"];
@@ -1286,27 +2386,149 @@ export const submitFeedback = async (req, res, next) => {
   }
 };
 
+export const getAdminFeedbacks = async (_req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("feedback")
+      .select("*, submitter:users!feedback_user_id_fkey(name,email)")
+      .order("created_at", { ascending: false });
+
+    if (isMissingTableError(error, "feedback")) {
+      return res.json({ feedbacks: [] });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ feedbacks: data || [] });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const markAdminFeedbackReviewed = async (req, res, next) => {
+  try {
+    const { feedbackId } = req.params;
+    const adminUserId = req.headers["x-user-id"] || null;
+
+    const { data, error } = await supabase
+      .from("feedback")
+      .update({
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: adminUserId
+      })
+      .eq("id", feedbackId)
+      .select("*, submitter:users!feedback_user_id_fkey(name,email)")
+      .single();
+
+    if (isMissingTableError(error, "feedback")) {
+      return res.status(503).json({ message: "Feedback table is not configured yet." });
+    }
+
+    if (isMissingColumnError(error, "reviewed_at") || isMissingColumnError(error, "reviewed_by")) {
+      return res.status(503).json({
+        message: "Feedback review columns are not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({ message: "Feedback marked as reviewed.", feedback: data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const clearAdminFeedback = async (req, res, next) => {
+  try {
+    const { feedbackId } = req.params;
+
+    const { data, error } = await supabase.from("feedback").delete().eq("id", feedbackId).select("id");
+
+    if (isMissingTableError(error, "feedback")) {
+      return res.status(503).json({ message: "Feedback table is not configured yet." });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    const deleted = (data || []).length ? data[0] : null;
+    return res.json({ message: "Feedback cleared.", id: deleted?.id || feedbackId });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const clearAdminFeedbacks = async (req, res, next) => {
+  try {
+    const reviewedBeforeDays = Number(req.body?.reviewedBeforeDays ?? 30);
+    const days = Number.isFinite(reviewedBeforeDays) && reviewedBeforeDays > 0 ? reviewedBeforeDays : 30;
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Math.floor(days));
+
+    const { data, error } = await supabase
+      .from("feedback")
+      .delete()
+      .not("reviewed_at", "is", null)
+      .lt("reviewed_at", cutoff.toISOString())
+      .select("id");
+
+    if (isMissingTableError(error, "feedback")) {
+      return res.status(503).json({ message: "Feedback table is not configured yet." });
+    }
+
+    if (isMissingColumnError(error, "reviewed_at")) {
+      return res.status(503).json({
+        message: "Feedback review columns are not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    return res.json({
+      message: `Cleared ${(data || []).length} feedback item(s).`,
+      clearedCount: (data || []).length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const askAppAssistant = async (req, res, next) => {
   try {
     const { question } = req.body;
+    const userId = req.headers["x-user-id"];
 
     if (!question?.trim()) {
       return res.status(400).json({ message: "Question is required." });
     }
 
     let answer;
+    let announcement = null;
     try {
       const prompt = `You are the in-app help assistant for AKSHARA, an AI test portal. Answer the user's question briefly and clearly. User question: ${question}`;
-      const result = await geminiModel.generateContent(prompt);
+      const { model } = await getGeminiModelForUserId(userId);
+      const result = await model.generateContent(prompt);
       answer = result.response.text().trim();
     } catch (assistantError) {
       console.warn("Gemini assistant fallback triggered.", assistantError.message);
+      if (isQuotaError(assistantError)) {
+        announcement = buildQuotaAnnouncement(await getGeminiModelForUserId(userId));
+      }
       answer =
         "You can create tests from the Create Test page, review scores in the dashboard, check old attempts in History, and contact admin through feedback or unblock request forms if needed.";
     }
 
-    return res.json({ answer });
+    return res.json({ answer, announcement });
   } catch (error) {
     next(error);
   }
 };
+

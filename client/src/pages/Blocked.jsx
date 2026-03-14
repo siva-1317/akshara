@@ -1,12 +1,28 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { submitUnblockRequest } from "../api";
+import { useToast } from "../components/ToastProvider";
 
 export default function Blocked() {
   const user = JSON.parse(localStorage.getItem("aksharaUser") || "null");
+  const toast = useToast();
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (message) {
+      toast.success(message);
+      setMessage("");
+    }
+  }, [message, toast]);
+
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+      setError("");
+    }
+  }, [error, toast]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -66,8 +82,6 @@ export default function Blocked() {
                 </div>
               </form>
 
-              {message ? <div className="alert alert-success mt-4 mb-0">{message}</div> : null}
-              {error ? <div className="alert alert-danger mt-4 mb-0">{error}</div> : null}
             </div>
           </div>
         </div>
