@@ -1,7 +1,16 @@
 import axios from "axios";
 
+const apiBaseUrl = import.meta.env.VITE_API_URL || "";
+const defaultDevUrl = "http://localhost:5000";
+const baseURL = apiBaseUrl || (import.meta.env.DEV ? defaultDevUrl : "");
+
+if (!apiBaseUrl && import.meta.env.PROD) {
+  // eslint-disable-next-line no-console
+  console.warn("VITE_API_URL is not set. Set it in your deployment environment variables.");
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:5000"
+  baseURL
 });
 
 api.interceptors.request.use((config) => {

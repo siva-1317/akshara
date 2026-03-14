@@ -11,9 +11,37 @@ import certificateRoutes from "./routes/certificates.js";
 const app = express();
 const port = process.env.PORT || 5000;
 
+const parseAllowedOrigins = () => {
+  const raw = String(process.env.CLIENT_URLS || process.env.CLIENT_URL || "").trim();
+  const items = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (items.length > 0) {
+    return items;
+  }
+
+  return ["http://localhost:5173"];
+};
+
+const allowedOrigins = parseAllowedOrigins();
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true
   })
 );
