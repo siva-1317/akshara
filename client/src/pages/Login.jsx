@@ -9,7 +9,10 @@ export default function Login() {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [googleWidth, setGoogleWidth] = useState(360);
+  const [googleWidth, setGoogleWidth] = useState(() => {
+    const viewport = typeof window !== "undefined" ? window.innerWidth : 360;
+    return Math.min(360, Math.max(240, viewport - 64));
+  });
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const isDark = typeof document !== "undefined" && document.body?.dataset?.theme === "dark";
 
@@ -28,7 +31,6 @@ export default function Login() {
       setGoogleWidth(proposed);
     };
 
-    computeWidth();
     window.addEventListener("resize", computeWidth);
     return () => window.removeEventListener("resize", computeWidth);
   }, []);
@@ -58,7 +60,13 @@ export default function Login() {
       if (serverMessage) {
         setError(serverMessage);
       } else if (String(err.message || "").toLowerCase().includes("network")) {
-        setError("Cannot reach the server. Check VITE_API_URL and make sure the API is running.");
+        const apiUrl = String(import.meta.env.VITE_API_URL || "").trim();
+        const origin = typeof window !== "undefined" ? window.location.origin : "";
+        if (apiUrl) {
+          setError(`Cannot reach the server. This is usually a CORS issue: allow origin ${origin} on the API (CLIENT_URLS).`);
+        } else {
+          setError("Cannot reach the server. Set VITE_API_URL (Netlify env) and make sure the API is running.");
+        }
       } else {
         setError("Google login failed.");
       }
@@ -104,7 +112,6 @@ export default function Login() {
               <GoogleLogin
                 onSuccess={handleGoogleSuccess}
                 onError={() => setError("Google sign-in could not be completed.")}
-                useOneTap
                 theme={isDark ? "filled_black" : "outline"}
                 shape="pill"
                 size="large"

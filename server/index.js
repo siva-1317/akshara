@@ -19,7 +19,7 @@ const parseAllowedOrigins = () => {
     .filter(Boolean);
 
   if (items.length > 0) {
-    return items;
+    return items.map((origin) => origin.replace(/\/+$/, ""));
   }
 
   return ["http://localhost:5173"];
