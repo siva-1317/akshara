@@ -14,6 +14,7 @@
   --ak-chart-amber: #ffb020;
   --ak-chart-red: #ff4d4d;
   --ak-chart-slate: rgba(47, 47, 47, 0.55);
+  --ak-chart-track: rgba(47, 47, 47, 0.12);
 }
 
 body {
@@ -1087,6 +1088,7 @@ body[data-theme="dark"] {
   --ak-bg: rgba(14, 12, 22, 0.88);
   --ak-muted: rgba(255, 255, 255, 0.72);
   --ak-chart-slate: rgba(255, 255, 255, 0.45);
+  --ak-chart-track: rgba(255, 255, 255, 0.14);
 }
 
 body[data-theme="dark"] .navbar-ak {
@@ -2748,8 +2750,10 @@ body[data-theme="dark"] .ak-analytics-total-row {
 .ak-radial-center {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   pointer-events: none;
 }
@@ -2826,6 +2830,34 @@ body[data-theme="dark"] .ak-analytics-total-row {
   width: 100%;
   height: auto;
   display: block;
+}
+
+.ak-timeseries-bar {
+  transform-origin: 50% 100%;
+  transform-box: fill-box;
+  animation: ak-bar-rise 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--ak-bar-delay, 0ms);
+  transition: opacity 160ms ease, transform 180ms ease, filter 180ms ease;
+}
+
+.ak-timeseries-bar:hover {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 14px 28px rgba(255, 106, 0, 0.2));
+}
+
+@keyframes ak-bar-rise {
+  from {
+    transform: scaleY(0.08);
+    opacity: 0.2;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.ak-timeseries-bar-zero {
+  opacity: 1;
 }
 
 .ak-chart-tooltip-floating {

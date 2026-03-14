@@ -36,7 +36,7 @@ export default function RadialProgress({
       <svg width={size} height={size} className="ak-radial-svg" role="img" aria-label={sublabel || "Progress"}>
         <circle
           className="ak-radial-track"
-          stroke="var(--ak-border)"
+          stroke="var(--ak-chart-track)"
           strokeWidth={thickness}
           fill="transparent"
           r={radius}
@@ -64,4 +64,3 @@ export default function RadialProgress({
     </div>
   );
 }
-

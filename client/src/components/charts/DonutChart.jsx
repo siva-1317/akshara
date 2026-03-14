@@ -51,6 +51,8 @@ export default function DonutChart({
     });
   }, [normalized, circumference, mounted]);
 
+  const empty = total === 0;
+
   return (
     <div className="ak-donut" style={{ width: size, height: size }}>
       <svg
@@ -64,14 +66,14 @@ export default function DonutChart({
         <g transform={`rotate(-90 ${size / 2} ${size / 2})`}>
           <circle
             className="ak-donut-track"
-            stroke="var(--ak-border)"
+            stroke="var(--ak-chart-track)"
             strokeWidth={thickness}
             fill="transparent"
             r={radius}
             cx={size / 2}
             cy={size / 2}
           />
-          {rings.map((segment) => (
+          {empty ? null : rings.map((segment) => (
             <circle
               key={segment.key || segment.label}
               className="ak-donut-segment"
@@ -107,7 +109,7 @@ export default function DonutChart({
         <div className="ak-donut-bottom">{centerLabelBottom}</div>
       </div>
 
-      {tooltip ? (
+      {!empty && tooltip ? (
         <div
           className="ak-chart-tooltip"
           style={{
@@ -122,4 +124,3 @@ export default function DonutChart({
     </div>
   );
 }
-

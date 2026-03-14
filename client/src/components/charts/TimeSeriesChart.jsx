@@ -2,19 +2,11 @@ import { useMemo, useState } from "react";
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-const buildPath = (points) => {
-  if (!points.length) {
-    return "";
-  }
-  return points
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-    .join(" ");
-};
-
 export default function TimeSeriesChart({ data = [], height = 220 }) {
   const width = 720;
   const paddingX = 24;
   const paddingY = 18;
+  const minBarHeight = 8;
 
   const normalized = useMemo(() => {
     const safe = (data || []).map((item) => ({
@@ -26,24 +18,35 @@ export default function TimeSeriesChart({ data = [], height = 220 }) {
     return { safe, max };
   }, [data]);
 
-  const points = useMemo(() => {
+  const bars = useMemo(() => {
     const { safe, max } = normalized;
     if (!safe.length) {
       return [];
     }
     const innerWidth = width - paddingX * 2;
     const innerHeight = height - paddingY * 2;
-    const denominator = Math.max(1, safe.length - 1);
+
+    const step = innerWidth / safe.length;
+    const barWidth = Math.max(6, step * 0.62);
+    const gap = step - barWidth;
 
     return safe.map((item, index) => {
-      const x = paddingX + (innerWidth * index) / denominator;
       const ratio = max ? item.count / max : 0;
-      const y = paddingY + innerHeight * (1 - ratio);
-      return { ...item, x, y };
+      const rawHeight = innerHeight * ratio;
+      const barHeight = item.count > 0 ? Math.max(minBarHeight, rawHeight) : minBarHeight;
+      const x = paddingX + index * step + gap / 2;
+      const y = paddingY + (innerHeight - barHeight);
+      return {
+        ...item,
+        index,
+        x,
+        y,
+        width: barWidth,
+        height: barHeight,
+        centerX: x + barWidth / 2
+      };
     });
   }, [normalized, height]);
-
-  const pathD = useMemo(() => buildPath(points), [points]);
 
   const yTicks = useMemo(() => {
     const max = normalized.max;
@@ -61,22 +64,22 @@ export default function TimeSeriesChart({ data = [], height = 220 }) {
 
   const [tooltip, setTooltip] = useState(null);
 
-  const nearestPoint = (svgEvent) => {
+  const nearestBar = (svgEvent) => {
     const bounds = svgEvent.currentTarget.getBoundingClientRect();
     const cursorX = svgEvent.clientX - bounds.left;
 
-    if (!points.length) {
+    if (!bars.length) {
       return null;
     }
 
-    let closest = points[0];
-    let smallest = Math.abs(points[0].x - cursorX);
+    let closest = bars[0];
+    let smallest = Math.abs(bars[0].centerX - cursorX);
 
-    for (let index = 1; index < points.length; index += 1) {
-      const distance = Math.abs(points[index].x - cursorX);
+    for (let index = 1; index < bars.length; index += 1) {
+      const distance = Math.abs(bars[index].centerX - cursorX);
       if (distance < smallest) {
         smallest = distance;
-        closest = points[index];
+        closest = bars[index];
       }
     }
 
@@ -90,16 +93,23 @@ export default function TimeSeriesChart({ data = [], height = 220 }) {
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
         onMouseMove={(event) => {
-          const point = nearestPoint(event);
-          if (!point) {
+          const bar = nearestBar(event);
+          if (!bar) {
             return;
           }
-          setTooltip({ x: point.x, y: point.y, label: point.label, count: point.count });
+          setTooltip({ x: bar.centerX, y: bar.y, label: bar.label, count: bar.count });
         }}
         onMouseLeave={() => setTooltip(null)}
         role="img"
         aria-label="Time series chart"
       >
+        <defs>
+          <linearGradient id="akBarGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--ak-primary)" stopOpacity="0.98" />
+            <stop offset="100%" stopColor="#ff9147" stopOpacity="0.92" />
+          </linearGradient>
+        </defs>
+
         {yTicks.map((tick) => (
           <g key={tick.y}>
             <line
@@ -117,23 +127,29 @@ export default function TimeSeriesChart({ data = [], height = 220 }) {
           </g>
         ))}
 
-        <path className="ak-timeseries-line" d={pathD} fill="none" stroke="var(--ak-chart-indigo)" strokeWidth="3" />
-        <path
-          className="ak-timeseries-fill"
-          d={`${pathD} L ${width - paddingX} ${height - paddingY} L ${paddingX} ${height - paddingY} Z`}
-          fill="var(--ak-chart-indigo)"
-          opacity="0.12"
+        <line
+          x1={paddingX}
+          x2={width - paddingX}
+          y1={height - paddingY}
+          y2={height - paddingY}
+          stroke="var(--ak-border)"
+          strokeWidth="1"
+          opacity="0.8"
         />
 
-        {points.map((point) => (
-          <circle
-            key={point.key}
-            cx={point.x}
-            cy={point.y}
-            r="5"
-            fill="var(--ak-bg)"
-            stroke="var(--ak-chart-indigo)"
-            strokeWidth="2"
+        {bars.map((bar) => (
+          <rect
+            key={bar.key}
+            className={`ak-timeseries-bar ${bar.count ? "" : "ak-timeseries-bar-zero"}`}
+            x={bar.x}
+            y={bar.y}
+            width={bar.width}
+            height={Math.max(0, bar.height)}
+            rx={10}
+            fill={bar.count ? "url(#akBarGradient)" : "var(--ak-chart-track)"}
+            style={{ "--ak-bar-delay": `${bar.index * 55}ms` }}
+            onMouseEnter={() => setTooltip({ x: bar.centerX, y: bar.y, label: bar.label, count: bar.count })}
+            onMouseLeave={() => setTooltip(null)}
           />
         ))}
 
@@ -167,4 +183,3 @@ export default function TimeSeriesChart({ data = [], height = 220 }) {
     </div>
   );
 }
-
