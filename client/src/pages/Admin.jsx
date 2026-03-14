@@ -6,6 +6,7 @@ import {
   approveAdminCoinRequest,
   approveAdminUser,
   blockAdminUser,
+  cancelAdminOffer,
   clearAdminFeedback,
   clearAdminFeedbacks,
   deleteAdminUser,
@@ -356,6 +357,24 @@ export default function Admin() {
     }
   };
 
+  const handleCancelOffer = async (offerId) => {
+    if (!offerId) {
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      setError("");
+      await cancelAdminOffer(offerId);
+      await loadAdmin();
+      toast.warning("Offer cancelled.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to cancel offer.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleApproveCoins = async (requestId, coinNote) => {
     try {
       setActionLoading(true);
@@ -491,6 +510,7 @@ export default function Admin() {
                 }}
                 onUnblockUser={(userId) => handleUnblock(userId, null, "")}
                 onDeleteUser={handleDeleteUser}
+                onCancelOffer={handleCancelOffer}
                 grantCoins={grantCoins}
                 onGrantCoinsChange={setGrantCoins}
                 onGrantCoins={handleGrantCoins}

@@ -1158,13 +1158,70 @@ export const getAdminUserPerformance = async (req, res, next) => {
       ...new Set(tests.filter((test) => (test.score || 0) < 70).map((test) => test.topic))
     ].slice(0, 5);
 
+    const nowIso = new Date().toISOString();
+
+    let activeOffers = [];
+    const { data: offersData, error: offersError } = await supabase
+      .from("offers")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .lte("starts_at", nowIso)
+      .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
+      .order("created_at", { ascending: false });
+
+    if (isMissingTableError(offersError, "offers")) {
+      activeOffers = [];
+    } else if (offersError) {
+      throw offersError;
+    } else {
+      activeOffers = offersData || [];
+    }
+
+    let certificates = [];
+    const { data: certData, error: certError } = await supabase
+      .from("certificates")
+      .select("id, issued_at, published_test_id, test_id, certificate_data, published_tests(title, topic, difficulty, reward_coins)")
+      .eq("user_id", userId)
+      .order("issued_at", { ascending: false });
+
+    if (isMissingTableError(certError, "certificates")) {
+      certificates = [];
+    } else if (certError) {
+      throw certError;
+    } else {
+      certificates = certData || [];
+    }
+
+    let coinBonuses = [];
+    let bonusCoinsEarned = 0;
+    const { data: completionData, error: completionError } = await supabase
+      .from("task_completions")
+      .select("id, completed_at, coins_awarded, published_test_id, certificate_id, published_tests(title)")
+      .eq("user_id", userId)
+      .order("completed_at", { ascending: false });
+
+    if (isMissingTableError(completionError, "task_completions")) {
+      coinBonuses = [];
+      bonusCoinsEarned = 0;
+    } else if (completionError) {
+      throw completionError;
+    } else {
+      coinBonuses = completionData || [];
+      bonusCoinsEarned = coinBonuses.reduce((sum, row) => sum + (Number(row.coins_awarded) || 0), 0);
+    }
+
     return res.json({
       user,
       performance: {
         totalTests,
         averageScore,
         weakestTopics,
-        recentTests: tests.slice(0, 8)
+        recentTests: tests.slice(0, 8),
+        activeOffers,
+        certificates,
+        coinBonuses,
+        bonusCoinsEarned
       }
     });
   } catch (error) {
@@ -1903,6 +1960,52 @@ export const cancelAdminOffers = async (req, res, next) => {
     return res.json({
       message: `Cancelled ${(data || []).length} offer(s).`,
       cancelledCount: (data || []).length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelAdminOffer = async (req, res, next) => {
+  try {
+    const { offerId } = req.params;
+
+    if (!offerId) {
+      return res.status(400).json({ message: "offerId is required." });
+    }
+
+    const nowIso = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("offers")
+      .update({
+        status: "cancelled",
+        cancelled_at: nowIso,
+        ends_at: nowIso
+      })
+      .eq("id", offerId)
+      .eq("status", "active")
+      .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
+      .select("*")
+      .maybeSingle();
+
+    if (isMissingTableError(error, "offers")) {
+      return res.status(503).json({
+        message: "Offers table is not configured yet. Please run the latest schema."
+      });
+    }
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return res.status(404).json({ message: "Offer not found or already inactive." });
+    }
+
+    return res.json({
+      message: "Offer cancelled.",
+      offer: data
     });
   } catch (error) {
     next(error);

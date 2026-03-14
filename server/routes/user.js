@@ -37,6 +37,7 @@ import {
   approveAdminUser,
   rejectAdminUser,
   updateAdminOffer,
+  cancelAdminOffer,
   upsertAdminOfferTemplate
 } from "../controllers/testController.js";
 
@@ -81,6 +82,7 @@ router.get("/admin/offers", requireAdmin, getAdminOffers);
 router.post("/admin/offers", requireAdmin, createAdminOffers);
 router.post("/admin/offers/cancel", requireAdmin, cancelAdminOffers);
 router.post("/admin/offers/:offerId", requireAdmin, updateAdminOffer);
+router.post("/admin/offers/:offerId/cancel", requireAdmin, cancelAdminOffer);
 
 router.get("/admin/offer-templates", requireAdmin, getAdminOfferTemplates);
 router.post("/admin/offer-templates", requireAdmin, upsertAdminOfferTemplate);

@@ -572,9 +572,177 @@ a {
   text-transform: capitalize;
 }
 
+.ak-info-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  border: 1px solid rgba(255, 179, 125, 0.26);
+  border-radius: 1rem;
+  padding: 0.95rem 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  min-width: 0;
+}
+
+.ak-icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 179, 125, 0.35);
+  background: rgba(255, 255, 255, 0.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ak-primary-dark);
+  box-shadow: 0 10px 20px rgba(255, 106, 0, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.ak-icon-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 24px rgba(255, 106, 0, 0.16);
+}
+
+.ak-icon-btn.danger {
+  border-color: rgba(220, 53, 69, 0.26);
+  color: rgba(220, 53, 69, 0.9);
+}
+
+.ak-offer-item {
+  position: relative;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding-top: 1.25rem;
+}
+
+.ak-offer-cancel {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+}
+
+.ak-offer-item .ak-offer-dates {
+  grid-template-columns: 1fr;
+  margin-top: 0.4rem;
+}
+
+.ak-offer-item .ak-info-meta {
+  width: 100%;
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.ak-offer-item .ak-meta-item {
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.ak-offer-item .ak-meta-value {
+  font-size: 0.95rem;
+}
+
+.ak-info-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ak-info-title {
+  font-weight: 800;
+  color: var(--ak-primary-dark);
+  letter-spacing: 0.01em;
+  margin-bottom: 0.15rem;
+  word-break: break-word;
+}
+
+.ak-info-sub {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.ak-info-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ak-offer-dates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+  margin-top: 0.55rem;
+}
+
+.ak-offer-date {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ak-info-meta {
+  flex: 0 0 auto;
+  display: grid;
+  grid-auto-flow: column;
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.ak-meta-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 4.5rem;
+}
+
+.ak-meta-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(47, 47, 47, 0.6);
+}
+
+.ak-meta-value {
+  font-weight: 800;
+  color: var(--ak-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ak-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-scroll-area {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 0.35rem;
+}
+
 @media (max-width: 768px) {
   .admin-test-row {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .ak-info-row {
+    flex-direction: column;
+  }
+
+  .ak-info-meta {
+    grid-auto-flow: row;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ak-meta-item {
+    align-items: flex-start;
+  }
+
+  .ak-offer-dates {
+    grid-template-columns: 1fr;
   }
 }
 

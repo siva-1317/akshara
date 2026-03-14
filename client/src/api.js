@@ -95,6 +95,7 @@ export const askAssistant = (payload) => api.post("/assistant/query", payload);
 export const getAdminOffers = () => api.get("/admin/offers");
 export const createAdminOffers = (payload) => api.post("/admin/offers", payload);
 export const cancelAdminOffers = (payload) => api.post("/admin/offers/cancel", payload);
+export const cancelAdminOffer = (offerId) => api.post(`/admin/offers/${offerId}/cancel`);
 export const updateAdminOffer = (offerId, payload) => api.post(`/admin/offers/${offerId}`, payload);
 export const getAdminOfferTemplates = () => api.get("/admin/offer-templates");
 export const upsertAdminOfferTemplate = (payload) => api.post("/admin/offer-templates", payload);
